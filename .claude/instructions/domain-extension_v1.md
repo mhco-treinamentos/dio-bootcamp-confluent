@@ -1,38 +1,38 @@
 # Instruction: estender o domínio (nova entidade / tabela / sub-domínio)
 
-> **Playbook RESEARCH → PLAN → ACT → VALIDATE para adicionar uma nova entidade ao domínio (ex.: `Estorno`, `Disputa`, `PIX`) — cobrindo schema Avro, gerador Python, Oracle CDC, Flink SQL e sink Iceberg.**
+> **Playbook RESEARCH → PLAN → ACT → VALIDATE para adicionar uma nova entidade ao domínio (ex.: `Refund`, `Dispute`, `PixTransfer`) — cobrindo schema Avro, gerador Python, CDC via connector gerenciado, Flink SQL e materialização Tableflow.**
 
 ## Quando usar
-- Você quer adicionar uma nova tabela Oracle ao pipeline CDC (ex.: `PAYMENTS.ESTORNOS`)
-- Ou um novo evento sintético que ainda não tem gerador (ex.: `EventoFraude`)
+- Você quer adicionar uma nova tabela Postgres ao pipeline CDC (ex.: `payments.refunds`)
+- Ou um novo evento sintético que ainda não tem gerador (ex.: `FraudEvent`)
 - Ou um sub-domínio inteiro (ex.: `pix`, `boletos`)
 
 ## Pré-requisitos
-- Estrutura `data-streaming-tour-2026/` existente
-- Stack base subindo (ver [kafka-setup_v1.md](kafka-setup_v1.md))
-- Para CDC: Oracle XE rodando, supplemental logging habilitado
+- Estrutura `repo/` existente (`shared/`, `labs/`, `desafio-final/`)
+- Ambiente Confluent Cloud configurado (ver [cloud-setup_v1.md](cloud-setup_v1.md))
+- Para CDC: Postgres fonte rodando (`wal_level=logical`) e connector Debezium gerenciado ativo
 
 ---
 
 ## Phase 1: RESEARCH
 
 ### 1.1 — Requisitos da nova entidade
-- Qual o nome da entidade? (Singular, PascalCase: `Estorno`)
-- Sub-domínio? (Define o namespace Avro: `com.workshop.payments.estornos`)
+- Qual o nome da entidade? (Singular, PascalCase: `Refund`)
+- Sub-domínio? (Define o namespace Avro: `com.bootcamp.payments.refunds`)
 - Campos? Tipos? Quais são PII/PCI?
-- Relacionamentos (FKs)? Ex.: `Estorno.transaction_id → Transacao.transaction_id`
-- Distribuições estatísticas? (Ex.: estornos são ~2% das transações; razão top: "FRAUDE" 40%, "CLIENTE_NAO_RECONHECEU" 30%, "DUPLICIDADE" 20%, outros 10%)
-- Vai entrar no pipeline CDC (tabela Oracle) ou só no pipeline sintético direto-para-Kafka?
+- Relacionamentos (FKs)? Ex.: `Refund.transaction_id → Transaction.transaction_id`
+- Distribuições estatísticas? (Ex.: estornos são ~2% das transações; razão top: "FRAUD" 40%, "NOT_RECOGNIZED" 30%, "DUPLICATE" 20%, outros 10%)
+- Vai entrar no pipeline CDC (tabela Postgres) ou só no pipeline sintético direto-para-Kafka?
 
 ### 1.2 — Revisar o existente
-- Inspecionar `shared/generators/payments/` para entender o pattern
-- Inspecionar `shared/schemas/payments/*.avsc` para namespace/tags
-- Ver `BaseGenerator` em `shared/generators/base.py`
+- Inspecionar `repo/shared/generators/payments/` para entender o pattern
+- Inspecionar `repo/shared/schemas/payments/*.avsc` para namespace/tags
+- Ver `BaseGenerator` em `repo/shared/generators/base.py`
 
 ### 1.3 — Consultar references
 - [references/data-modeling.md](../references/data-modeling.md) — relacionamentos, evolução
 - [references/brazilian-data-formats.md](../references/brazilian-data-formats.md) — formatos específicos
-- [references/oracle-cdc-patterns.md](../references/oracle-cdc-patterns.md) — se for tabela Oracle
+- [references/cdc-connect-patterns.md](../references/cdc-connect-patterns.md) — se for tabela CDC
 
 ---
 
@@ -43,54 +43,57 @@
 ```json
 {
   "type": "record",
-  "name": "Estorno",
-  "namespace": "com.workshop.payments.estornos",
-  "doc": "Estorno (chargeback ou reembolso) de uma transação aprovada",
+  "name": "Refund",
+  "namespace": "com.bootcamp.payments.refunds",
+  "doc": "Refund (chargeback ou reembolso) de uma transação aprovada",
   "fields": [
     {"name": "event_id", "type": "string"},
     {"name": "event_time", "type": {"type": "long", "logicalType": "timestamp-millis"}},
-    {"name": "estorno_id", "type": "string"},
-    {"name": "transaction_id", "type": "string", "doc": "FK → Transacao.transaction_id"},
+    {"name": "refund_id", "type": "string"},
+    {"name": "transaction_id", "type": "string", "doc": "FK → Transaction.transaction_id"},
     {
-      "name": "valor_estornado",
+      "name": "refund_amount",
       "type": {"type": "bytes", "logicalType": "decimal", "precision": 15, "scale": 2}
     },
     {
-      "name": "motivo",
-      "type": {"type": "enum", "name": "MotivoEstorno", "symbols": ["FRAUDE", "CLIENTE_NAO_RECONHECEU", "DUPLICIDADE", "ERRO_VALOR", "OUTRO"]}
+      "name": "reason",
+      "type": {"type": "enum", "name": "RefundReason", "symbols": ["FRAUD", "NOT_RECOGNIZED", "DUPLICATE", "AMOUNT_ERROR", "OTHER"]}
     },
-    {"name": "iniciado_por", "type": ["null", "string"], "default": null, "doc": "operator id ou null se automático"}
+    {"name": "initiated_by", "type": ["null", "string"], "default": null, "doc": "operator id ou null se automático"}
   ]
 }
 ```
 
-### 2.2 — Tabela Oracle (se aplicável)
+### 2.2 — Tabela Postgres (se aplicável)
 
 ```sql
-CREATE TABLE PAYMENTS.ESTORNOS (
-  estorno_id         VARCHAR2(36)  PRIMARY KEY,
-  transaction_id     VARCHAR2(36)  NOT NULL,
-  valor_estornado    NUMBER(15,2)  NOT NULL,
-  motivo             VARCHAR2(30)  NOT NULL,
-  iniciado_por       VARCHAR2(36),
-  created_at         TIMESTAMP(3) WITH TIME ZONE DEFAULT SYSTIMESTAMP,
-  CONSTRAINT fk_estorno_trx FOREIGN KEY (transaction_id) REFERENCES PAYMENTS.TRANSACOES(transaction_id)
+CREATE TABLE payments.refunds (
+  refund_id       UUID PRIMARY KEY,
+  transaction_id  UUID NOT NULL REFERENCES payments.transactions (transaction_id),
+  refund_amount   NUMERIC(15, 2) NOT NULL,
+  reason          VARCHAR(30) NOT NULL,
+  initiated_by    UUID,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-ALTER TABLE PAYMENTS.ESTORNOS ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+-- Necessário para o Debezium capturar before-image em UPDATE/DELETE
+ALTER TABLE payments.refunds REPLICA IDENTITY FULL;
+
+-- Se a publication não é FOR ALL TABLES:
+ALTER PUBLICATION payments_cdc ADD TABLE payments.refunds;
 ```
 
 ### 2.3 — Topics & subjects
 
 ```
-dev.payments.oracle-pagamentos.estornos.cdc.v1
-└── subject: dev.payments.oracle-pagamentos.estornos.cdc.v1-value
+dev.payments.pg-payments.refunds.cdc.v1
+└── subject: dev.payments.pg-payments.refunds.cdc.v1-value
 ```
 
 ### 2.4 — Decisões a confirmar com usuário
 - Particionamento (partition key): `transaction_id` ou `account_id`?
-- Compatibility mode no Schema Registry: **BACKWARD** (default)
-- Vai existir no Iceberg também? Se sim, particionar por `DAYS(event_time)` + `bucket(transaction_id, 8)`?
+- Compatibility mode no Schema Registry: **BACKWARD** (default do bootcamp)
+- Vai para o lakehouse? Se sim, habilitar Tableflow no topic enriquecido (módulo 5)
 
 ---
 
@@ -99,80 +102,85 @@ dev.payments.oracle-pagamentos.estornos.cdc.v1
 ### 3.1 — Criar arquivos
 
 ```
-data-streaming-tour-2026/
+repo/
 ├── shared/
-│   ├── schemas/payments/estorno.avsc          # novo
+│   ├── schemas/payments/refund.avsc           # novo
 │   └── generators/payments/
 │       ├── __init__.py                        # adicionar export
-│       └── estornos.py                        # novo
-└── tests/generators/test_estornos.py          # novo
+│       └── refunds.py                         # novo
+└── tests/generators/test_refunds.py           # novo
 ```
 
 ### 3.2 — Gerador Python
-Seguir [new-generator_v1.md](new-generator_v1.md). Diferença-chave: o gerador de `Estorno` precisa receber um pool de `transaction_id` (de transações reais geradas previamente) para manter integridade referencial:
+Seguir [new-generator_v1.md](new-generator_v1.md). Diferença-chave: o gerador de `Refund` precisa receber um pool de `transaction_id` (de transações reais geradas previamente) para manter integridade referencial:
 
 ```python
-class EstornoGenerator(BaseGenerator):
-    def __init__(self, transaction_pool: list[str], config: EstornoGeneratorConfig | None = None) -> None:
+class RefundGenerator(BaseGenerator):
+    def __init__(self, transaction_pool: list[str], config: RefundGeneratorConfig | None = None) -> None:
         self.transaction_pool = transaction_pool
         # ...
 ```
 
-### 3.3 — Oracle CDC (se tabela Oracle)
-1. Criar a tabela com `ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS`
-2. Atualizar a config do connector Debezium para incluir `PAYMENTS.ESTORNOS` em `table.include.list`
-3. Reload do connector: `curl -X POST http://localhost:8083/connectors/oracle-payments-cdc/restart`
-4. Verificar snapshot: topic CDC vai receber eventos `op=r` iniciais
+### 3.3 — CDC (se tabela Postgres)
+1. Criar a tabela com `REPLICA IDENTITY FULL` e adicioná-la à publication
+2. Atualizar a config do connector gerenciado para incluir `payments.refunds` em `table.include.list`:
 
-### 3.4 — Flink SQL — table sobre o topic CDC
-
-```sql
-CREATE TABLE estornos_cdc (
-  estorno_id STRING,
-  transaction_id STRING,
-  valor_estornado DECIMAL(15, 2),
-  motivo STRING,
-  event_time TIMESTAMP_LTZ(3) METADATA FROM 'value.source.timestamp',
-  WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND,
-  PRIMARY KEY (estorno_id) NOT ENFORCED
-) WITH (
-  'connector' = 'kafka',
-  'topic' = 'dev.payments.oracle-pagamentos.estornos.cdc.v1',
-  'properties.bootstrap.servers' = 'kafka:29092',
-  'value.format' = 'avro-confluent',
-  'value.avro-confluent.url' = 'http://schema-registry:8081',
-  'value.fields-include' = 'EXCEPT_KEY',
-  'scan.startup.mode' = 'earliest-offset'
-);
+```bash
+confluent connect cluster update <connector-id> --config-file connectors/pg-payments-cdc.json
 ```
 
-### 3.5 — Iceberg sink (lakehouse)
+3. Verificar status e snapshot:
+
+```bash
+confluent connect cluster describe <connector-id>
+# Topic CDC recebe eventos op=r (snapshot) e depois op=c/u/d
+```
+
+### 3.4 — Flink SQL — statement sobre o topic CDC
+
+No Confluent Cloud, o topic com schema já aparece como tabela no catálogo do Flink — não há DDL de conector:
 
 ```sql
-CREATE TABLE iceberg_estornos (
-  estorno_id STRING,
-  transaction_id STRING,
-  valor_estornado DECIMAL(15, 2),
-  motivo STRING,
-  event_time TIMESTAMP_LTZ(3),
-  PRIMARY KEY (estorno_id) NOT ENFORCED
-) PARTITIONED BY (DAYS(event_time))
-WITH (
-  'connector' = 'iceberg',
-  'catalog-name' = 'nessie',
-  'catalog-database' = 'payments',
-  'format-version' = '2',
-  'write.upsert.enabled' = 'true'
-);
-
-INSERT INTO iceberg_estornos
-SELECT estorno_id, transaction_id, valor_estornado, motivo, event_time
-FROM estornos_cdc;
+-- Workspace Flink (compute pool do environment)
+SELECT
+  refund_id,
+  transaction_id,
+  refund_amount,
+  reason,
+  `$rowtime` AS event_time
+FROM `dev.payments.pg-payments.refunds.cdc.v1`
+WHERE reason = 'FRAUD';
 ```
+
+Para derivar um topic enriquecido (ex.: join com transações):
+
+```sql
+CREATE TABLE `dev.payments.flink.refunds.enriched.v1` AS
+SELECT
+  r.refund_id,
+  r.transaction_id,
+  r.refund_amount,
+  r.reason,
+  t.account_id,
+  t.merchant_mcc
+FROM `dev.payments.pg-payments.refunds.cdc.v1` r
+JOIN `dev.payments.pg-payments.transactions.cdc.v1` FOR SYSTEM_TIME AS OF r.`$rowtime` AS t
+  ON r.transaction_id = t.transaction_id;
+```
+
+### 3.5 — Tableflow (lakehouse, se aplicável)
+
+```bash
+# Habilitar materialização Iceberg no topic enriquecido
+confluent tableflow topic enable dev.payments.flink.refunds.enriched.v1 \
+  --cluster <cluster-id> --storage-type MANAGED --table-formats ICEBERG
+```
+
+Consulta via engine conectada ao catálogo (Glue / Snowflake Open Catalog / Unity) — ver [skills/confluent/tableflow.md](../skills/confluent/tableflow.md).
 
 ### 3.6 — Atualizar docs
-- [.claude/rules.md](../rules.md) — adicionar `Estornos` na tabela "Domain Rules — Payments" se a entidade trouxer regras novas
-- README da edição (`data-streaming-tour-2026/README.md`)
+- [.claude/rules.md](../rules.md) — adicionar `Refunds` na tabela "Domain Rules — Payments" se a entidade trouxer regras novas
+- README do lab afetado (`repo/labs/modulo-0X-*/README.md`)
 - CHANGELOG
 
 ---
@@ -181,39 +189,39 @@ FROM estornos_cdc;
 
 ### 4.1 — Schema (hook PII bloqueia se faltar tag)
 ```bash
-# Save em shared/schemas/payments/estorno.avsc dispara validate-avro-pii.sh
-# Esperado: sem violações (Estorno não tem campos PII além do FK)
+# Save em repo/shared/schemas/payments/refund.avsc dispara validate-avro-pii.sh
+# Esperado: sem violações (Refund não tem campos PII além do FK)
 ```
 
 ### 4.2 — Testes
 ```bash
-pytest data-streaming-tour-2026/tests/generators/test_estornos.py -v
+pytest repo/tests/generators/test_refunds.py -v
 ```
 
 ### 4.3 — CDC end-to-end
 ```bash
-# 1) Insert no Oracle
-echo "INSERT INTO PAYMENTS.ESTORNOS VALUES (...);" | sqlplus payments/pass@//localhost:1521/XEPDB1
+# 1) Insert no Postgres fonte
+psql "$PG_SOURCE_DSN" -c "INSERT INTO payments.refunds VALUES (...);"
 
 # 2) Consumir o topic e verificar envelope Debezium
-kcat -C -b localhost:9092 -t dev.payments.oracle-pagamentos.estornos.cdc.v1 -o end -c 1 | jq .
-# Esperado: envelope com op=c, after.estorno_id presente
+confluent kafka topic consume dev.payments.pg-payments.refunds.cdc.v1 \
+  --from-beginning --value-format avro | jq .
+# Esperado: envelope com op=c, after.refund_id presente
 ```
 
-### 4.4 — Iceberg (se aplicável)
-```sql
--- No Trino
-SELECT COUNT(*) FROM iceberg.payments.estornos;
--- Deve subir conforme novos eventos CDC chegam
+### 4.4 — Tableflow (se aplicável)
+```bash
+confluent tableflow topic describe dev.payments.flink.refunds.enriched.v1 --cluster <cluster-id>
+# Esperado: status ACTIVE; contagem de linhas sobe conforme eventos chegam (query via engine do catálogo)
 ```
 
 ### 4.5 — Schema compatibility
 ```bash
 # Validar BACKWARD compat (deve passar — nova entidade não muda schemas existentes)
-curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  --data @<(jq -n --argfile s data-streaming-tour-2026/shared/schemas/payments/estorno.avsc '{schema: ($s | tostring)}') \
-  http://localhost:8081/compatibility/subjects/dev.payments.oracle-pagamentos.estornos.cdc.v1-value/versions/latest
-# Esperado: {"is_compatible": true}
+confluent schema-registry schema create \
+  --subject dev.payments.pg-payments.refunds.cdc.v1-value \
+  --schema repo/shared/schemas/payments/refund.avsc --type avro --dry-run
+# Esperado: sem erro de compatibilidade
 ```
 
 ---
@@ -221,21 +229,22 @@ curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
 ## Checklist final
 
 - [ ] Schema Avro criado com namespace + tags PII/PCI corretas
-- [ ] Tabela Oracle criada com supplemental logging (se aplicável)
+- [ ] Tabela Postgres criada com REPLICA IDENTITY FULL e na publication (se aplicável)
 - [ ] Gerador Python implementado e testado (≥80% coverage)
-- [ ] Topic criado com particionamento adequado
-- [ ] Connector Debezium atualizado e RUNNING
-- [ ] Flink SQL table criada e snapshot recebido
-- [ ] Iceberg sink criado e populando (se aplicável)
+- [ ] Topic criado com particionamento adequado (RF=3 no cloud)
+- [ ] Connector gerenciado atualizado e RUNNING
+- [ ] Statement Flink validado e topic derivado populando
+- [ ] Tableflow habilitado e materializando (se aplicável)
 - [ ] Compatibility check passou (BACKWARD)
-- [ ] Docs atualizadas (rules.md, README, CHANGELOG)
+- [ ] Docs atualizadas (rules.md, README do lab, CHANGELOG)
+- [ ] Teardown do que for descartável (statements de teste, topics temporários)
 
 ---
 
 ## Exemplo de uso
 
 ```
-"Siga domain-extension para adicionar a entidade Disputa
-(disputa_id, transaction_id, status, opened_at, resolved_at)
-ao domínio payments, com tabela Oracle + CDC + sink Iceberg"
+"Siga domain-extension para adicionar a entidade Dispute
+(dispute_id, transaction_id, status, opened_at, resolved_at)
+ao domínio payments, com tabela Postgres + CDC + Tableflow"
 ```

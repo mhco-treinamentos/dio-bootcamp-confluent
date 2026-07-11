@@ -7,7 +7,7 @@ globs: "**/*.py"
 ## Style
 - Formatter: Black (line length: 100)
 - Linter: Ruff
-- Type checker: mypy (strict em código de biblioteca; relaxado em scripts de cena)
+- Type checker: mypy (strict em código de `shared/`; relaxado em scripts de lab)
 - Type hints: obrigatórios em toda função pública
 - Docstrings: estilo NumPy
 
@@ -59,11 +59,12 @@ if TYPE_CHECKING:
 - PAN de cartão — **PCI-DSS** restrito; sempre mascarado em topic e em log
 - CVV, senha de cartão, dados completos de magnetic stripe — **proibidos** mesmo em sintético
 - Dados de localização (lat/lon, cidade da transação) — sensíveis, taggear
-- Workshop usa exclusivamente dados sintéticos — nenhum dado real, mesmo "anonimizado"
+- O bootcamp usa exclusivamente dados sintéticos — nenhum dado real, mesmo "anonimizado"
 - Pseudonimização preferível à anonimização quando reversibilidade é necessária
 
-## Confluent Platform / Schema Registry (local)
+## Confluent Cloud / Schema Registry
+- Credenciais sempre via env vars (`CC_*`, `SR_*`) — nunca hardcoded; seletor cloud/local via `KAFKA_PROFILE=cloud|local` (ver [.claude/rules.md](../rules.md))
+- Schema Registry cloud: basic auth com `basic.auth.user.info=<sr-key>:<sr-secret>`; no fallback local não há auth
 - Sempre setar timeouts em chamadas REST do Schema Registry (default: 10s)
 - Sempre verificar compatibilidade do schema antes de publicar (`schema_registry_client.test_compatibility(...)`)
 - Producer idempotente: `enable.idempotence=True`, `acks=all`
-- No workshop local não há autenticação no Schema Registry; em produção real, usar basic auth

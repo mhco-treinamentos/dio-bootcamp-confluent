@@ -6,6 +6,8 @@
 
 Real-world data pipelines must handle dirty data. Poison pills are intentionally injected data quality issues that test pipeline robustness. Each type maps to a specific pipeline capability.
 
+**Pedagogical home**: Curso 3, Aula 4 — SMT + Dead Letter Topic (DLQ). The module 3 lab injects these pills through the managed connector pipeline so students watch bad records get routed to the DLQ (with context headers) instead of killing the connector. DLQ configuration details live in [cdc-connect-patterns.md](cdc-connect-patterns.md).
+
 | # | Poison Pill | Tests Pipeline Capability |
 |---|-------------|---------------------------|
 | 1 | Duplicate events | Deduplication logic |

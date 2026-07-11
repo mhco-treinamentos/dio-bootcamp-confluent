@@ -2,7 +2,7 @@
 
 ## Skill: `/confluent-topics`
 
-Create and manage Kafka topics with proper configuration.
+Criar e gerenciar topics no **Confluent Cloud** via CLI `confluent` (v4). Fallback local (Docker) apenas onde indicado — ver [local-dev-fallback.md](local-dev-fallback.md).
 
 ## Usage
 
@@ -11,347 +11,182 @@ Create and manage Kafka topics with proper configuration.
 ```
 
 ### Actions
-- `list` - List all topics
-- `create <name>` - Create a new topic
-- `describe <name>` - Describe topic configuration
-- `delete <name>` - Delete a topic
-- `alter <name>` - Modify topic configuration
-- `produce` - Send test messages
-- `consume` - Read messages
+- `list` — Listar topics
+- `create <name>` — Criar topic
+- `describe <name>` — Configuração do topic
+- `update <name>` — Alterar configuração
+- `delete <name>` — Deletar topic
+- `produce` / `consume` — Mensagens de teste
+- `consumer-groups` — Lag e offsets
 
 ---
 
-## Topic Commands (Docker)
-
-### List Topics
+## Contexto (uma vez por sessão)
 
 ```bash
-# List all topics
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --list
-
-# List with details
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --describe
-
-# Filter topics
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --list | grep "membros"
+confluent environment use <env-id>
+confluent kafka cluster use <cluster-id>
+# A partir daqui os comandos não precisam de --cluster/--environment
 ```
 
-### Create Topic
+## Comandos de topic (Confluent Cloud)
+
+### Listar
 
 ```bash
-# Basic topic creation
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --create \
-  --topic membros \
-  --partitions 3 \
-  --replication-factor 1
+confluent kafka topic list
+confluent kafka topic list -o json | jq -r '.[].name' | grep "payments"
+```
 
-# With configuration
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --create \
-  --topic guias \
+### Criar
+
+```bash
+# Topic de eventos gerados (naming de rules.md; RF=3 é fixo na cloud)
+confluent kafka topic create dev.payments.gen.transactions.created.v1 \
   --partitions 6 \
-  --replication-factor 1 \
   --config retention.ms=604800000 \
-  --config cleanup.policy=delete \
-  --config compression.type=snappy
+  --config cleanup.policy=delete
 
-# Compacted topic (for state/CDC)
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --create \
-  --topic membro-state \
-  --partitions 3 \
-  --replication-factor 1 \
+# Topic compactado (estado de entidade / snapshot)
+confluent kafka topic create lab.payments.gen.accounts.snapshot.v1 \
+  --partitions 6 \
   --config cleanup.policy=compact \
-  --config min.cleanable.dirty.ratio=0.1 \
-  --config segment.ms=100
+  --config min.compaction.lag.ms=60000
 
-# Log compacted with delete (for CDC tombstones)
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --create \
-  --topic cdc-events \
-  --partitions 3 \
-  --replication-factor 1 \
+# Compact+delete (CDC com tombstones e janela de retenção)
+confluent kafka topic create dev.payments.pg-payments.transactions.cdc.v1 \
+  --partitions 6 \
   --config cleanup.policy=compact,delete \
   --config retention.ms=604800000
 ```
 
-### Describe Topic
+> Conceitos-âncora ao criar/explicar topics: **RF=3**, **min.insync.replicas=2**, **acks=all** (defaults do Confluent Cloud — cite-os nas aulas mesmo quando não configuráveis no plano Basic).
+
+### Describe / Update / Delete
 
 ```bash
-# Describe topic
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --describe \
-  --topic membros
+confluent kafka topic describe dev.payments.gen.transactions.created.v1
 
-# Describe all topics with under-replicated partitions
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --describe \
-  --under-replicated-partitions
+# Alterar configuração (retention de 7d para 3d)
+confluent kafka topic update dev.payments.gen.transactions.created.v1 \
+  --config retention.ms=259200000
 
-# Describe topics with specific config
-docker exec broker kafka-configs --bootstrap-server localhost:9092 \
-  --describe \
-  --entity-type topics \
-  --entity-name membros
-```
+# Adicionar partições (nunca reduz; cuidado com ordem por chave!)
+confluent kafka topic update dev.payments.gen.transactions.created.v1 --partitions 12
 
-### Alter Topic
-
-```bash
-# Add partitions (cannot reduce)
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --alter \
-  --topic membros \
-  --partitions 6
-
-# Change configuration
-docker exec broker kafka-configs --bootstrap-server localhost:9092 \
-  --alter \
-  --entity-type topics \
-  --entity-name membros \
-  --add-config retention.ms=259200000
-
-# Remove configuration (revert to default)
-docker exec broker kafka-configs --bootstrap-server localhost:9092 \
-  --alter \
-  --entity-type topics \
-  --entity-name membros \
-  --delete-config retention.ms
-```
-
-### Delete Topic
-
-```bash
-# Delete single topic
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --delete \
-  --topic membros
-
-# Delete multiple topics (use with caution)
-for topic in topic1 topic2 topic3; do
-  docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-    --delete \
-    --topic $topic
-done
+confluent kafka topic delete dev.payments.gen.transactions.created.v1 --force
 ```
 
 ---
 
-## Producer/Consumer Commands
-
-### Console Producer
+## Produce / Consume (CLI)
 
 ```bash
-# Simple producer
-docker exec -it broker kafka-console-producer \
-  --bootstrap-server localhost:9092 \
-  --topic membros
+# Producer simples (JSON como string)
+confluent kafka topic produce dev.payments.gen.transactions.created.v1
 
-# With key
-docker exec -it broker kafka-console-producer \
-  --bootstrap-server localhost:9092 \
-  --topic membros \
-  --property "parse.key=true" \
-  --property "key.separator=:"
+# Com chave (ordem por account_id)
+confluent kafka topic produce dev.payments.gen.transactions.created.v1 \
+  --parse-key --delimiter ":"
+# formato: acc-001:{"transaction_id":"tx-1","amount":"80.00"}
 
-# Example: key:value format
-# membro-001:{"nome":"João Silva","cpf":"123.456.789-00"}
+# Producer Avro integrado ao Schema Registry
+confluent kafka topic produce dev.payments.gen.transactions.created.v1 \
+  --value-format avro \
+  --schema ./shared/schemas/payments/transaction_created.avsc
+
+# Consumer
+confluent kafka topic consume dev.payments.gen.transactions.created.v1 --from-beginning
+confluent kafka topic consume dev.payments.gen.transactions.created.v1 \
+  --from-beginning --print-key --value-format avro
+confluent kafka topic consume dev.payments.gen.transactions.created.v1 --group bootcamp-lab02
 ```
 
-### Console Consumer
+## Consumer groups
 
 ```bash
-# Consume from beginning
-docker exec broker kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic membros \
-  --from-beginning
+confluent kafka consumer group list
+confluent kafka consumer group describe bootcamp-lab02
 
-# Consume with keys
-docker exec broker kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic membros \
-  --from-beginning \
-  --property print.key=true \
-  --property key.separator=" | "
-
-# Consume specific partition
-docker exec broker kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic membros \
-  --partition 0 \
-  --offset earliest
-
-# Consume N messages
-docker exec broker kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic membros \
-  --from-beginning \
-  --max-messages 10
-
-# Consumer group
-docker exec broker kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic membros \
-  --group my-consumer-group
+# Lag por partição (base do lab de observabilidade — módulo 7)
+confluent kafka consumer group lag describe bootcamp-lab02
 ```
 
-### Avro Producer/Consumer (with Schema Registry)
+> Reset de offsets não está na CLI cloud — usar consumer com `auto.offset.reset` ou a UI (Consumers → grupo → offsets). No fallback local: `kafka-consumer-groups --reset-offsets`.
+
+---
+
+## Fallback local (só topics + SR)
+
+Mesmos conceitos, ferramentas do broker (ver [local-dev-fallback.md](local-dev-fallback.md)):
 
 ```bash
-# Avro producer
-docker exec -it schema-registry kafka-avro-console-producer \
-  --bootstrap-server broker:29092 \
-  --topic membros \
-  --property schema.registry.url=http://localhost:8081 \
-  --property value.schema='{"type":"record","name":"Membro","fields":[{"name":"id","type":"string"},{"name":"nome","type":"string"}]}'
-
-# Avro consumer
-docker exec schema-registry kafka-avro-console-consumer \
-  --bootstrap-server broker:29092 \
-  --topic membros \
-  --from-beginning \
-  --property schema.registry.url=http://localhost:8081
+docker exec broker kafka-topics --bootstrap-server localhost:9092 --list
+docker exec broker kafka-topics --bootstrap-server localhost:9092 \
+  --create --topic dev.payments.gen.transactions.created.v1 --partitions 6 --replication-factor 1
+docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
+  --describe --group bootcamp-lab02
 ```
 
 ---
 
-## Consumer Group Management
+## Referência de configuração
 
-```bash
-# List consumer groups
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 --list
+### Retenção
 
-# Describe consumer group
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --describe \
-  --group my-consumer-group
+| Config | Descrição | Default |
+|--------|-----------|---------|
+| `retention.ms` | Tempo de retenção | 604800000 (7 dias) |
+| `retention.bytes` | Tamanho máximo por partição | -1 (ilimitado) |
+| `cleanup.policy` | delete, compact ou ambos | delete |
 
-# Show all groups with lag
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --describe \
-  --all-groups
+### Performance / confiabilidade
 
-# Reset offsets (careful!)
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --group my-consumer-group \
-  --topic membros \
-  --reset-offsets \
-  --to-earliest \
-  --execute
-
-# Reset to specific offset
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --group my-consumer-group \
-  --topic membros \
-  --reset-offsets \
-  --to-offset 100 \
-  --execute
-
-# Delete consumer group
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --delete \
-  --group my-consumer-group
-```
-
----
-
-## Topic Configuration Reference
-
-### Retention Settings
-
-| Config | Description | Default |
-|--------|-------------|---------|
-| `retention.ms` | Time to retain messages | 604800000 (7 days) |
-| `retention.bytes` | Max size per partition | -1 (unlimited) |
-| `cleanup.policy` | delete, compact, or both | delete |
-| `segment.bytes` | Segment file size | 1073741824 (1GB) |
-| `segment.ms` | Time before segment rolls | 604800000 (7 days) |
-
-### Performance Settings
-
-| Config | Description | Default |
-|--------|-------------|---------|
+| Config | Descrição | Cloud |
+|--------|-----------|-------|
 | `compression.type` | none, gzip, snappy, lz4, zstd | producer |
-| `max.message.bytes` | Max message size | 1048588 |
-| `min.insync.replicas` | Min replicas for acks=all | 1 |
+| `max.message.bytes` | Tamanho máximo da mensagem | 2 MB (Basic) |
+| `min.insync.replicas` | Réplicas mínimas para acks=all | 2 (fixo) |
+| replication factor | Cópias por partição | 3 (fixo) |
 
-### Compaction Settings
+### Compactação
 
-| Config | Description | Default |
-|--------|-------------|---------|
-| `min.cleanable.dirty.ratio` | Min dirty ratio to trigger | 0.5 |
-| `min.compaction.lag.ms` | Min time before compaction | 0 |
-| `max.compaction.lag.ms` | Max time before compaction | infinite |
-| `delete.retention.ms` | Tombstone retention | 86400000 (1 day) |
-
----
-
-## REST Proxy Commands
-
-```bash
-# List topics via REST
-curl -s http://localhost:8082/topics | jq
-
-# Get topic details
-curl -s http://localhost:8082/topics/membros | jq
-
-# Produce message via REST
-curl -X POST http://localhost:8082/topics/membros \
-  -H "Content-Type: application/vnd.kafka.json.v2+json" \
-  -d '{
-    "records": [
-      {"key": "membro-001", "value": {"nome": "João Silva", "cpf": "123.456.789-00"}},
-      {"key": "membro-002", "value": {"nome": "Maria Santos", "cpf": "987.654.321-00"}}
-    ]
-  }'
-
-# Create consumer instance
-curl -X POST http://localhost:8082/consumers/my-group \
-  -H "Content-Type: application/vnd.kafka.v2+json" \
-  -d '{
-    "name": "my-consumer",
-    "format": "json",
-    "auto.offset.reset": "earliest"
-  }'
-
-# Subscribe to topic
-curl -X POST http://localhost:8082/consumers/my-group/instances/my-consumer/subscription \
-  -H "Content-Type: application/vnd.kafka.v2+json" \
-  -d '{"topics": ["membros"]}'
-
-# Consume messages
-curl -s http://localhost:8082/consumers/my-group/instances/my-consumer/records \
-  -H "Accept: application/vnd.kafka.json.v2+json" | jq
-```
+| Config | Descrição | Default |
+|--------|-----------|---------|
+| `min.compaction.lag.ms` | Tempo mínimo antes de compactar | 0 |
+| `max.compaction.lag.ms` | Tempo máximo até compactar | infinito |
+| `delete.retention.ms` | Retenção de tombstones | 86400000 (1 dia) |
 
 ---
 
-## Best Practices
+## Best practices
 
-### Partitioning Strategy
-
-- **By key**: Use consistent hashing for related data
-- **By time**: Time-based partitioning for time-series
-- **Round-robin**: For load balancing (no key)
-
-### Retention Strategy
-
-| Use Case | Cleanup Policy | Retention |
-|----------|---------------|-----------|
-| Events/Logs | delete | 7-30 days |
-| CDC/State | compact | Forever |
-| Audit | delete | 1-7 years |
-| Temp/Staging | delete | 1-24 hours |
-
-### Naming Conventions
+### Naming (rules.md)
 
 ```
-<env>.<domain>.<source_system>.<entity>.<event_type>.v<version>
+{stage}.{domain}.{source_system}.{entity}.{event_type}.v{version}
+stage = dev | lab (não há prod no bootcamp)
 
-Examples:
-- prod.saude.oracle-beneficiarios.membros.cdc.v1
-- prod.saude.flink.guias.enriched.v1
-- prod.saude.oracle-autorizacoes.guias.cdc.v1
+dev.payments.pg-payments.transactions.cdc.v1
+dev.payments.flink.fraud.detected.v1
+lab.payments.gen.accounts.snapshot.v1
 ```
+
+### Estratégia de retenção
+
+| Caso de uso | Cleanup policy | Retenção |
+|-------------|----------------|----------|
+| Eventos gerados / labs | delete | 1–7 dias (créditos!) |
+| CDC / estado | compact | — |
+| Saídas Flink (enriched/fraud) | delete | 7 dias |
+| DLQ | delete | 7–30 dias |
+
+### Particionamento
+
+- **Chave = entidade de ordenação** (`account_id` para transações — ordem por conta)
+- 3–6 partições nos labs (setup rápido); dimensionamento real é conteúdo do módulo 7
+- Nunca aumentar partições de topic compactado ou com dependência de ordem por chave
+
+---
+
+**Última atualização**: 2026-07-11

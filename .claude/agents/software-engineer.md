@@ -53,22 +53,21 @@ class BaseGenerator(ABC, Generic[T]):
 ```python
 from enum import Enum, auto
 
-class StatusGuia(Enum):
-    SOLICITADA = auto()
-    EM_ANALISE = auto()
-    AUTORIZADA = auto()
-    NEGADA = auto()
-    EXECUTADA = auto()
-    CANCELADA = auto()
+class TransactionStatus(Enum):
+    CREATED = auto()
+    AUTHORIZED = auto()
+    DECLINED = auto()
+    SETTLED = auto()
+    REFUNDED = auto()
+    CANCELLED = auto()
 
-    def next(self, event: str) -> "StatusGuia":
+    def next(self, event: str) -> "TransactionStatus":
         transitions = {
-            (StatusGuia.SOLICITADA, "analisar"): StatusGuia.EM_ANALISE,
-            (StatusGuia.EM_ANALISE, "aprovar"): StatusGuia.AUTORIZADA,
-            (StatusGuia.EM_ANALISE, "negar"): StatusGuia.NEGADA,
-            (StatusGuia.AUTORIZADA, "executar"): StatusGuia.EXECUTADA,
-            (StatusGuia.AUTORIZADA, "cancelar"): StatusGuia.CANCELADA,
-            (StatusGuia.NEGADA, "recurso"): StatusGuia.EM_ANALISE,
+            (TransactionStatus.CREATED, "authorize"): TransactionStatus.AUTHORIZED,
+            (TransactionStatus.CREATED, "decline"): TransactionStatus.DECLINED,
+            (TransactionStatus.AUTHORIZED, "settle"): TransactionStatus.SETTLED,
+            (TransactionStatus.AUTHORIZED, "cancel"): TransactionStatus.CANCELLED,
+            (TransactionStatus.SETTLED, "refund"): TransactionStatus.REFUNDED,
         }
         return transitions.get((self, event), self)
 ```
@@ -79,33 +78,33 @@ class StatusGuia(Enum):
 import pytest
 from hypothesis import given, strategies as st
 
-class TestGuiaGenerator:
-    """Property-based tests for guia generators."""
+class TestTransactionGenerator:
+    """Property-based tests for transaction generators."""
 
     @given(seed=st.integers(min_value=0, max_value=10_000))
     def test_deterministic_output(self, seed: int) -> None:
         """Same seed must produce identical results."""
-        gen = GuiaGenerator(seed=seed)
-        assert gen.generate() == GuiaGenerator(seed=seed).generate()
+        gen = TransactionGenerator(seed=seed)
+        assert gen.generate() == TransactionGenerator(seed=seed).generate()
 
     @given(count=st.integers(min_value=1, max_value=100))
     def test_batch_count(self, count: int) -> None:
         """Batch must yield exactly count items."""
-        gen = GuiaGenerator(seed=42)
+        gen = TransactionGenerator(seed=42)
         assert len(list(gen.generate_batch(count))) == count
 
-    def test_referential_integrity(self, store: HealthDataStore) -> None:
+    def test_referential_integrity(self, store: PaymentsDataStore) -> None:
         """All FK references must resolve to existing entities."""
-        for guia in store.get_guias():
-            assert store.get_membro(guia.membro_id) is not None
-            assert store.get_prestador(guia.prestador_id) is not None
+        for txn in store.get_transactions():
+            assert store.get_account(txn.account_id) is not None
+            assert store.get_card(txn.card_id) is not None
 
-    @pytest.mark.parametrize("tipo", ["CONSULTA", "SP_SADT", "INTERNACAO", "ODONTO"])
-    def test_valor_positive(self, tipo: str) -> None:
-        """All authorization amounts must be positive."""
-        gen = GuiaGenerator(seed=42)
-        guia = gen.generate(tipo_guia=tipo)
-        assert guia.valor_autorizado > 0
+    @pytest.mark.parametrize("channel", ["PIX", "CREDIT", "DEBIT", "BOLETO"])
+    def test_amount_positive(self, channel: str) -> None:
+        """All transaction amounts must be positive."""
+        gen = TransactionGenerator(seed=42)
+        txn = gen.generate(channel=channel)
+        assert txn.amount > 0
 ```
 
 ### Performance Patterns
@@ -124,8 +123,8 @@ def chunked(iterable: Iterator[T], size: int) -> Iterator[list[T]]:
 # Cached lookups for repeated FK resolution
 class CachedStore:
     @lru_cache(maxsize=10_000)
-    def get_membro(self, membro_id: str) -> Membro | None:
-        return self._membros.get(membro_id)
+    def get_account(self, account_id: str) -> Account | None:
+        return self._accounts.get(account_id)
 ```
 
 ## Decision Framework

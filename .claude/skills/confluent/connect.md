@@ -1,8 +1,10 @@
-# Kafka Connect Connectors Skill
+# Kafka Connect (Managed) Skill
 
 ## Skill: `/confluent-connect`
 
-Deploy and manage Kafka Connect connectors for data integration.
+Gerenciamento geral de **conectores gerenciados** no Confluent Cloud: descobrir plugins, validar configs, ciclo de vida (create/pause/resume/update/delete) e monitoramento via CLI `confluent` (v4).
+
+> **Connect é cloud-only neste bootcamp** — o fallback local ([local-dev-fallback.md](local-dev-fallback.md)) não tem worker de Connect. Para o passo a passo do source Debezium Postgres e sinks do módulo 3 (SMT, DLQ, banco fonte), ver [managed-connector.md](managed-connector.md).
 
 ## Usage
 
@@ -11,328 +13,116 @@ Deploy and manage Kafka Connect connectors for data integration.
 ```
 
 ### Actions
-- `list` - List installed connector plugins
-- `status` - Check connector status
-- `create <type>` - Create a new connector
-- `delete <name>` - Delete a connector
-- `pause <name>` - Pause a connector
-- `resume <name>` - Resume a connector
-
-### Connector Types
-- `jdbc-source` - JDBC Source Connector (database to Kafka)
-- `jdbc-sink` - JDBC Sink Connector (Kafka to database)
-- `debezium-postgres` - Debezium PostgreSQL CDC
-- `debezium-mysql` - Debezium MySQL CDC
-- `elasticsearch-sink` - Elasticsearch Sink
-- `s3-sink` - AWS S3 Sink
-- `file-source` - File Source (testing)
-- `file-sink` - File Sink (testing)
+- `plugins` — Listar/descrever plugins disponíveis
+- `create` — Criar conector a partir de JSON
+- `status` — Estado de conectores e tasks
+- `pause|resume|delete <id>` — Ciclo de vida
+- `update <id>` — Atualizar configuração
+- `events` — Logs/eventos de conectores
 
 ---
 
-## Connector Configurations
+## Descobrir plugins e configs obrigatórias
 
-### JDBC Source Connector (PostgreSQL)
+```bash
+confluent environment use <env-id>
+confluent kafka cluster use <cluster-id>
+
+# Catálogo de conectores gerenciados disponível na região
+confluent connect plugin list
+confluent connect plugin list | grep -iE "postgres|s3|snowflake|mongo"
+
+# Campos obrigatórios/opcionais do plugin (fonte da verdade para o JSON)
+confluent connect plugin describe PostgresCdcSourceV2
+confluent connect plugin describe S3_SINK
+```
+
+### Plugins usados no bootcamp
+
+| Plugin | Tipo | Módulo |
+|--------|------|--------|
+| `PostgresCdcSourceV2` (Debezium) | Source CDC | 3 |
+| `DatagenSource` | Source sintético (mock rápido) | 2–3 |
+| `S3_SINK` | Sink Object Storage | 3 e 5 (comparação com Tableflow) |
+| `SnowflakeSink` | Sink DW | 3 |
+| `MongoDbAtlasSink` | Sink NoSQL | 3 |
+
+---
+
+## Ciclo de vida
+
+```bash
+# Criar (config JSON versionada no lab, segredos via env/placeholder)
+confluent connect cluster create --config-file connector.json
+
+# Listar / inspecionar
+confluent connect cluster list
+confluent connect cluster describe <lcc-id>
+
+# Pausar / retomar / atualizar / deletar
+confluent connect cluster pause <lcc-id>
+confluent connect cluster resume <lcc-id>
+confluent connect cluster update <lcc-id> --config-file connector.json
+confluent connect cluster delete <lcc-id> --force     # teardown do lab
+```
+
+### Exemplo mínimo: DatagenSource (mock antes do CDC real)
 
 ```json
 {
-  "name": "jdbc-source-postgres",
-  "config": {
-    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
-    "connection.url": "jdbc:postgresql://postgres:5432/mydb",
-    "connection.user": "postgres",
-    "connection.password": "postgres",
-    "topic.prefix": "postgres-",
-    "mode": "incrementing",
-    "incrementing.column.name": "id",
-    "table.whitelist": "customers,orders,products",
-    "poll.interval.ms": "1000",
-    "batch.max.rows": "1000",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081",
-    "transforms": "createKey,extractInt",
-    "transforms.createKey.type": "org.apache.kafka.connect.transforms.ValueToKey",
-    "transforms.createKey.fields": "id",
-    "transforms.extractInt.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
-    "transforms.extractInt.field": "id"
-  }
+  "name": "datagen-transactions",
+  "connector.class": "DatagenSource",
+  "kafka.auth.mode": "SERVICE_ACCOUNT",
+  "kafka.service.account.id": "<sa-id>",
+  "kafka.topic": "lab.payments.gen.transactions.created.v1",
+  "output.data.format": "AVRO",
+  "quickstart": "TRANSACTIONS",
+  "max.interval": "1000",
+  "tasks.max": "1"
 }
 ```
 
-### JDBC Source with Timestamp+Incrementing Mode
-
-```json
-{
-  "name": "jdbc-source-timestamp",
-  "config": {
-    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
-    "connection.url": "jdbc:postgresql://postgres:5432/mydb",
-    "connection.user": "postgres",
-    "connection.password": "postgres",
-    "topic.prefix": "db-",
-    "mode": "timestamp+incrementing",
-    "incrementing.column.name": "id",
-    "timestamp.column.name": "updated_at",
-    "table.whitelist": "membros,guias",
-    "poll.interval.ms": "5000",
-    "validate.non.null": "false",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081"
-  }
-}
-```
-
-### JDBC Sink Connector
-
-```json
-{
-  "name": "jdbc-sink-postgres",
-  "config": {
-    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
-    "connection.url": "jdbc:postgresql://postgres:5432/analytics",
-    "connection.user": "postgres",
-    "connection.password": "postgres",
-    "topics": "processed-customers,processed-orders",
-    "insert.mode": "upsert",
-    "pk.mode": "record_key",
-    "pk.fields": "id",
-    "auto.create": "true",
-    "auto.evolve": "true",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081"
-  }
-}
-```
-
-### Debezium PostgreSQL CDC Connector
-
-```json
-{
-  "name": "debezium-postgres-cdc",
-  "config": {
-    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-    "database.hostname": "postgres",
-    "database.port": "5432",
-    "database.user": "postgres",
-    "database.password": "postgres",
-    "database.dbname": "mydb",
-    "database.server.name": "dbserver1",
-    "topic.prefix": "cdc",
-    "table.include.list": "public.customers,public.orders",
-    "plugin.name": "pgoutput",
-    "slot.name": "debezium_slot",
-    "publication.name": "dbz_publication",
-    "key.converter": "io.confluent.connect.avro.AvroConverter",
-    "key.converter.schema.registry.url": "http://schema-registry:8081",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081",
-    "transforms": "unwrap",
-    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-    "transforms.unwrap.drop.tombstones": "false",
-    "transforms.unwrap.delete.handling.mode": "rewrite"
-  }
-}
-```
-
-### Elasticsearch Sink Connector
-
-```json
-{
-  "name": "elasticsearch-sink",
-  "config": {
-    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
-    "connection.url": "http://elasticsearch:9200",
-    "topics": "customers,products",
-    "type.name": "_doc",
-    "key.ignore": "false",
-    "schema.ignore": "true",
-    "behavior.on.null.values": "delete",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081",
-    "transforms": "extractKey",
-    "transforms.extractKey.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
-    "transforms.extractKey.field": "id"
-  }
-}
-```
-
-### S3 Sink Connector
-
-```json
-{
-  "name": "s3-sink",
-  "config": {
-    "connector.class": "io.confluent.connect.s3.S3SinkConnector",
-    "s3.bucket.name": "my-kafka-data",
-    "s3.region": "us-east-1",
-    "topics": "guias,membros",
-    "flush.size": "1000",
-    "rotate.interval.ms": "60000",
-    "storage.class": "io.confluent.connect.s3.storage.S3Storage",
-    "format.class": "io.confluent.connect.s3.format.parquet.ParquetFormat",
-    "parquet.codec": "snappy",
-    "partitioner.class": "io.confluent.connect.storage.partitioner.TimeBasedPartitioner",
-    "partition.duration.ms": "3600000",
-    "path.format": "'year'=YYYY/'month'=MM/'day'=dd/'hour'=HH",
-    "locale": "en-US",
-    "timezone": "UTC",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "http://schema-registry:8081"
-  }
-}
-```
-
-### File Stream Source (Testing)
-
-```json
-{
-  "name": "file-source-test",
-  "config": {
-    "connector.class": "org.apache.kafka.connect.file.FileStreamSourceConnector",
-    "file": "/data/input.txt",
-    "topic": "file-input-topic",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "org.apache.kafka.connect.storage.StringConverter"
-  }
-}
+```bash
+confluent connect cluster create --config-file datagen-transactions.json
+confluent kafka topic consume lab.payments.gen.transactions.created.v1 --value-format avro
 ```
 
 ---
 
-## API Commands
-
-### List Connectors
+## Monitoramento
 
 ```bash
-# List all connectors
-curl -s http://localhost:8083/connectors | jq
+# Status resumido de todos os conectores
+confluent connect cluster list -o json | jq -r '.[] | "\(.name): \(.status)"'
 
-# List connector plugins
-curl -s http://localhost:8083/connector-plugins | jq
+# Detalhe por task (trace de erro aparece aqui)
+confluent connect cluster describe <lcc-id>
+
+# Eventos/logs de conectores do environment
+confluent connect event describe
 ```
 
-### Create Connector
-
-```bash
-# Create connector from JSON file
-curl -X POST http://localhost:8083/connectors \
-  -H "Content-Type: application/json" \
-  -d @connector-config.json
-
-# Create connector inline
-curl -X POST http://localhost:8083/connectors \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-connector",
-    "config": {
-      "connector.class": "...",
-      ...
-    }
-  }'
-```
-
-### Manage Connectors
-
-```bash
-# Get connector status
-curl -s http://localhost:8083/connectors/my-connector/status | jq
-
-# Get connector config
-curl -s http://localhost:8083/connectors/my-connector/config | jq
-
-# Update connector config
-curl -X PUT http://localhost:8083/connectors/my-connector/config \
-  -H "Content-Type: application/json" \
-  -d @updated-config.json
-
-# Pause connector
-curl -X PUT http://localhost:8083/connectors/my-connector/pause
-
-# Resume connector
-curl -X PUT http://localhost:8083/connectors/my-connector/resume
-
-# Restart connector
-curl -X POST http://localhost:8083/connectors/my-connector/restart
-
-# Delete connector
-curl -X DELETE http://localhost:8083/connectors/my-connector
-```
-
-### Task Management
-
-```bash
-# List tasks
-curl -s http://localhost:8083/connectors/my-connector/tasks | jq
-
-# Restart specific task
-curl -X POST http://localhost:8083/connectors/my-connector/tasks/0/restart
-```
+Estados possíveis: `PROVISIONING` → `RUNNING` | `PAUSED` | `FAILED`. Conector `FAILED` com `errors.tolerance=all` configurado geralmente indica problema de conexão/auth, não de dado (dado ruim vai para a DLQ — ver [managed-connector.md](managed-connector.md)).
 
 ---
 
-## Common Transforms (SMT)
+## Custos e teardown
 
-### Extract Field
+- Conector gerenciado cobra **por task-hora + throughput** — mesmo parado em `RUNNING` sem tráfego há custo de task
+- `pause` reduz mas não zera; **delete no fim do lab** (entra no `teardown.sh` — [cloud-setup.md](cloud-setup.md))
+- `tasks.max=1` em todos os labs — throughput dos labs não justifica mais
 
-```json
-"transforms": "extractField",
-"transforms.extractField.type": "org.apache.kafka.connect.transforms.ExtractField$Value",
-"transforms.extractField.field": "data"
-```
+## Troubleshooting rápido
 
-### Rename Topic
+| Sintoma | Verificar |
+|---------|-----------|
+| `FAILED` ao criar | `confluent connect cluster describe` → trace; geralmente rede/credencial do sistema externo |
+| Sem dados no topic | Fonte tem dados novos? `snapshot.mode`? SMT filtrando tudo? |
+| Erro de serialização | `output.data.format` vs. schema no SR; compatibilidade BACKWARD |
+| ACL negada | Service account do conector tem write no prefixo do topic? (`confluent kafka acl list --service-account <sa-id>`) |
 
-```json
-"transforms": "renameTopic",
-"transforms.renameTopic.type": "org.apache.kafka.connect.transforms.RegexRouter",
-"transforms.renameTopic.regex": "(.*)source(.*)",
-"transforms.renameTopic.replacement": "$1dest$2"
-```
-
-### Add Timestamp
-
-```json
-"transforms": "insertTimestamp",
-"transforms.insertTimestamp.type": "org.apache.kafka.connect.transforms.InsertField$Value",
-"transforms.insertTimestamp.timestamp.field": "processed_at"
-```
-
-### Flatten Nested JSON
-
-```json
-"transforms": "flatten",
-"transforms.flatten.type": "org.apache.kafka.connect.transforms.Flatten$Value",
-"transforms.flatten.delimiter": "_"
-```
-
-### Filter Records
-
-```json
-"transforms": "filterNull",
-"transforms.filterNull.type": "org.apache.kafka.connect.transforms.Filter",
-"transforms.filterNull.predicate": "isNullValue",
-"predicates": "isNullValue",
-"predicates.isNullValue.type": "org.apache.kafka.connect.transforms.predicates.RecordIsTombstone"
-```
+Diagnóstico completo → [troubleshoot.md](troubleshoot.md).
 
 ---
 
-## Troubleshooting
-
-### Check Logs
-
-```bash
-docker logs connect -f --tail 100
-```
-
-### Common Issues
-
-1. **Connector FAILED state**: Check task status and logs
-2. **Schema incompatibility**: Verify schema registry URL
-3. **Connection refused**: Check network connectivity
-4. **No data flowing**: Verify source table/topic has data
+**Última atualização**: 2026-07-11

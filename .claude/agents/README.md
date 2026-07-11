@@ -1,27 +1,27 @@
-# Agent Fleet — data-streaming-tour
+# Agent Fleet — Bootcamp Confluent Cloud 2026
 
-> **Agentes especializados para construir e manter o workshop pt-BR de streaming (Kafka + Oracle CDC + Flink + Iceberg/Trino) com domínio de pagamentos.**
+> **Agentes especializados para construir os labs e o Desafio Final do bootcamp (Confluent Cloud: Kafka + Connect/CDC + Flink SQL + Tableflow + Real-Time AI) com domínio de pagamentos/fraude.**
 
 ## Agentes de Plataforma & Stack
 
 | Agent | Domínio | Expertise |
 |-------|---------|-----------|
-| `confluent-platform-expert` | Confluent Platform (Docker) | Docker Compose, Kafka broker, Schema Registry, Control Center, community edition |
-| `oracle-database-expert` | Oracle DB | Arquitetura, tipos de dado, supplemental logging, LogMiner, Oracle XE em Docker |
-| `oracle-cdc-expert` | Oracle CDC | Debezium Oracle connector, Confluent Oracle CDC Source, snapshot strategies, SMTs |
-| `kafka-streaming-expert` | Kafka Streaming | Producers, topics, schemas, partitioning, throughput, idempotência |
-| `kafka-security-expert` | Segurança Kafka | SASL/SSL, ACLs, API keys (em laboratório), mascaramento PII/PCI, LGPD |
-| `flink-self-managed-expert` | Flink self-managed | Flink 1.19 em Docker, JAR classloader, S3 plugin, SQL Client, checkpointing |
-| `iceberg-expert` | Iceberg | Partitioning, catalogs (Nessie/Glue/Hive), schema evolution, compaction, manutenção |
-| `trino-expert` | Trino | Iceberg connector, otimização de query, time travel, integração com Superset/BI |
+| `confluent-cloud-expert` | Confluent Cloud | CLI `confluent`, environments, clusters (Basic/Standard/Dedicated/Freight), service accounts, API keys, Cluster Linking, teardown |
+| `connect-cdc-expert` | Connect & CDC | Conectores gerenciados, Debezium source (Postgres), sinks DW/NoSQL/Object Storage, SMTs, Dead Letter Topic |
+| `kafka-streaming-expert` | Kafka Streaming | Producers, topics, schemas, partitioning, semânticas de entrega, idempotência |
+| `kafka-security-expert` | Segurança | RBAC, ACLs, service accounts, API keys, mascaramento PII/PCI, LGPD |
+| `flink-confluent-expert` | Flink gerenciado | Compute pools, statements, watermarks, janelas (tumbling/hopping/session), joins, MATCH_RECOGNIZE |
+| `tableflow-lakehouse-expert` | Lakehouse | Tableflow, Iceberg, evolução de schema, catálogos (Glue/Snowflake Open Catalog/Unity), consumo analítico |
+| `realtime-ai-expert` | Real-Time AI | CREATE MODEL, ML_PREDICT, embeddings, Vector Search, streaming agents |
+| `observability-cost-expert` | Produção | Metrics API, consumer lag, alertas Prometheus/Grafana, custos (Tiered Storage, Freight), multi-region/DR |
 
 ## Agentes de Dados & Engenharia
 
 | Agent | Domínio | Expertise |
 |-------|---------|-----------|
-| `data-modeler` | Modelagem | Design de entidades, evolução de schema, relacionamentos, distribuições |
+| `data-modeler` | Modelagem | Design de entidades, evolução de schema (BACKWARD), relacionamentos, distribuições |
 | `data-quality-expert` | Qualidade | Validação, realismo, distribuições estatísticas em dados sintéticos |
-| `scenario-architect` | Cenários | Orquestração de cenas, máquinas de estado, poison pills, fluxos comportamentais |
+| `lab-architect` | Labs | Estrutura de labs por módulo, time-boxing, camadas build-as-you-go do Desafio Final |
 | `software-engineer` | Engenharia de Software | Padrões Python, arquitetura, testing, performance |
 | `logging-expert` | Logging | Logging estruturado, níveis, formato JSON |
 
@@ -29,54 +29,70 @@
 
 ### Invocação direta
 ```
-"Usando confluent-platform-expert, monte o docker-compose do a cena de Kafka fundamentals com Kafka + Schema Registry"
-"Usando oracle-cdc-expert, configure Debezium para CDC da tabela TRANSACOES em Oracle XE"
-"Usando flink-self-managed-expert, escreva uma cena com MATCH_RECOGNIZE para detectar fraude por velocidade"
-"Usando iceberg-expert + trino-expert, monte o sink Flink→Iceberg do a cena de lakehouse e queries Trino"
+"Usando confluent-cloud-expert, crie o script da Aula 0: environment, cluster, API keys e teardown"
+"Usando connect-cdc-expert, configure o source connector Debezium para a tabela transactions"
+"Usando flink-confluent-expert, escreva o statement MATCH_RECOGNIZE de fraude por velocidade"
+"Usando tableflow-lakehouse-expert, materialize o topic enriquecido como tabela Iceberg"
+"Usando realtime-ai-expert, adicione ML_PREDICT de classificação de fraude ao pipeline"
+"Usando observability-cost-expert, monte o dashboard de consumer lag com a Metrics API"
 ```
 
 ### Multi-agent
 ```
-"Primeiro use oracle-database-expert para preparar supplemental logging,
-depois use oracle-cdc-expert para configurar o connector Debezium,
-depois use kafka-streaming-expert para validar os topics CDC gerados"
+"Primeiro use connect-cdc-expert para configurar o source connector Debezium do Postgres,
+depois use flink-confluent-expert para enriquecer as transações,
+depois use tableflow-lakehouse-expert para materializar o resultado como Iceberg"
 ```
 
 ## Guia de seleção
 
-### Kafka & Confluent Platform (workshop local)
+### Confluent Cloud (setup e operação)
 | Tarefa | Agent recomendado |
 |--------|-------------------|
-| Subir Kafka + SR via Docker Compose | `confluent-platform-expert` |
+| Environment, cluster, API keys, teardown | `confluent-cloud-expert` |
 | Configurar topics, partições, retention | `kafka-streaming-expert` |
-| Producer idempotente | `kafka-streaming-expert` |
-| ACL e mascaramento de PII | `kafka-security-expert` |
+| Producer idempotente (cloud ou fallback local) | `kafka-streaming-expert` |
+| RBAC, ACLs e mascaramento de PII | `kafka-security-expert` |
+| Migração/legado com Cluster Linking | `confluent-cloud-expert` |
 
-### Oracle CDC
+### Connect & CDC (módulo 3)
 | Tarefa | Agent recomendado |
 |--------|-------------------|
-| Preparar Oracle XE para CDC | `oracle-database-expert` |
-| Habilitar supplemental logging | `oracle-database-expert` |
-| Configurar Debezium / Oracle CDC Source | `oracle-cdc-expert` |
-| Mapear tipos Oracle → Avro | `oracle-database-expert` + `data-modeler` |
-| Troubleshoot CDC lag | `oracle-cdc-expert` |
+| Preparar Postgres fonte (wal_level, publication) | `connect-cdc-expert` |
+| Configurar source connector Debezium gerenciado | `connect-cdc-expert` |
+| Sink connectors (DW, NoSQL, S3) | `connect-cdc-expert` |
+| SMT + Dead Letter Topic (poison pills) | `connect-cdc-expert` |
+| Mapear tipos Postgres → Avro | `connect-cdc-expert` + `data-modeler` |
 
-### Flink SQL (self-managed)
+### Flink SQL (módulo 4)
 | Tarefa | Agent recomendado |
 |--------|-------------------|
-| Build da imagem Flink com JARs + S3 plugin | `flink-self-managed-expert` |
-| Debug de checkpoint / classloader | `flink-self-managed-expert` |
-| Watermarks, windows, joins | `flink-self-managed-expert` |
-| CEP / MATCH_RECOGNIZE para fraude | `flink-self-managed-expert` + `scenario-architect` |
+| Compute pool e statements | `flink-confluent-expert` |
+| Watermarks, janelas, joins | `flink-confluent-expert` |
+| CEP / MATCH_RECOGNIZE para fraude | `flink-confluent-expert` + `lab-architect` |
+| Quando usar Flink vs ksqlDB vs Kafka Streams | `flink-confluent-expert` |
 
-### Lakehouse (Iceberg + Trino)
+### Lakehouse (módulo 5)
 | Tarefa | Agent recomendado |
 |--------|-------------------|
-| Design de tabelas Iceberg (PK, partition, catalog) | `iceberg-expert` |
-| Manutenção (compaction, snapshot expiry) | `iceberg-expert` |
-| Configurar Trino com Nessie + MinIO | `trino-expert` |
-| Otimizar queries Trino em Iceberg | `trino-expert` |
-| Wire Trino → Superset | `trino-expert` |
+| Habilitar Tableflow em um topic | `tableflow-lakehouse-expert` |
+| Evolução de schema na materialização | `tableflow-lakehouse-expert` + `data-modeler` |
+| Integração com Glue / Snowflake Open Catalog / Unity | `tableflow-lakehouse-expert` |
+
+### Real-Time AI (módulo 6)
+| Tarefa | Agent recomendado |
+|--------|-------------------|
+| CREATE MODEL + ML_PREDICT no Flink SQL | `realtime-ai-expert` |
+| Embeddings em tempo real e Vector Search | `realtime-ai-expert` |
+| Streaming agents com contexto operacional | `realtime-ai-expert` |
+
+### Produção (módulo 7)
+| Tarefa | Agent recomendado |
+|--------|-------------------|
+| Metrics API, consumer lag, alertas | `observability-cost-expert` |
+| Otimização de custos (retenção, Tiered Storage, Freight) | `observability-cost-expert` |
+| Multi-region e DR | `observability-cost-expert` |
+| RBAC/ACLs em produção | `kafka-security-expert` |
 
 ### Dados & qualidade
 | Tarefa | Agent recomendado |
@@ -85,5 +101,9 @@ depois use kafka-streaming-expert para validar os topics CDC gerados"
 | Estratégia de evolução de schema | `data-modeler` |
 | Validar qualidade de dados sintéticos | `data-quality-expert` |
 | Arquitetura Python dos geradores | `software-engineer` |
-| Orquestrar cena de demonstração | `scenario-architect` |
+| Estruturar um novo lab ou camada do desafio | `lab-architect` |
 | Formatos brasileiros (CPF, CNPJ, MCC) | `data-modeler` + ver [references/brazilian-data-formats.md](../references/brazilian-data-formats.md) |
+
+---
+
+**Última atualização**: 2026-07-11

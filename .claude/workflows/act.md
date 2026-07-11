@@ -101,9 +101,9 @@ Before starting ACT phase:
 Retrieve the todo list created in PLAN phase:
 
 Example:
-1. [ ] Design glosa detection event schema
-2. [ ] Create Kafka topic for guia events
-3. [ ] Create Kafka topic for glosa alerts
+1. [ ] Design fraud detection event schema
+2. [ ] Create Kafka topic for transaction events
+3. [ ] Create Kafka topic for fraud alerts
 ...
 ```
 
@@ -164,17 +164,17 @@ For each task in the todo list:
 # - Black formatter (100 char)
 # - No hardcoded secrets
 
-def process_guia_event(
-    event: GuiaEvent,
+def process_transaction_event(
+    event: TransactionEvent,
     config: ProcessorConfig
 ) -> ProcessedEvent:
     """
-    Process a guia event for glosa detection.
+    Process a transaction event for fraud detection.
 
     Parameters
     ----------
-    event : GuiaEvent
-        Raw guia event from Kafka
+    event : TransactionEvent
+        Raw transaction event from Kafka
     config : ProcessorConfig
         Processor configuration
 
@@ -201,17 +201,17 @@ def process_guia_event(
 # - Follow naming conventions
 # - Tag all resources
 
-resource "confluent_kafka_topic" "guia_events" {
+resource "confluent_kafka_topic" "transaction_events" {
   kafka_cluster {
     id = var.kafka_cluster_id
   }
 
-  topic_name       = "${var.environment}.saude.oracle-autorizacoes.guias.cdc.v1"
+  topic_name       = "${var.environment}.payments.pg-payments.transactions.cdc.v1"
   partitions_count = var.partitions
   rest_endpoint    = var.rest_endpoint
 
   config = {
-    "retention.ms"          = var.retention_ms        # ANS compliance retention
+    "retention.ms"          = var.retention_ms        # lab budget — não deixar retention infinita
     "min.insync.replicas"   = "2"
     "cleanup.policy"        = "delete"
   }
@@ -228,30 +228,30 @@ resource "confluent_kafka_topic" "guia_events" {
 ```json
 {
   "type": "record",
-  "name": "GuiaEvent",
-  "namespace": "com.workshop.payments.autorizacoes",
-  "doc": "Guia TISS authorization event",
+  "name": "TransactionEvent",
+  "namespace": "com.bootcamp.payments",
+  "doc": "Card/PIX transaction event",
   "fields": [
     {
-      "name": "guia_id",
+      "name": "transaction_id",
       "type": "string",
-      "doc": "Unique guia identifier"
+      "doc": "Unique transaction identifier"
     },
     {
-      "name": "membro_id",
+      "name": "account_id",
       "type": "string",
-      "doc": "Beneficiary membro_id (tokenized)",
+      "doc": "Account identifier (tokenized)",
       "confluent:tags": ["PII", "LGPD"]
     },
     {
-      "name": "valor_autorizado",
+      "name": "amount",
       "type": {
         "type": "bytes",
         "logicalType": "decimal",
         "precision": 15,
         "scale": 2
       },
-      "doc": "Valor autorizado in BRL"
+      "doc": "Transaction amount in BRL"
     },
     {
       "name": "timestamp",
@@ -274,63 +274,50 @@ resource "confluent_kafka_topic" "guia_events" {
 -- - Proper watermarks
 -- - Error handling
 
--- Create source table from Kafka
-CREATE TABLE guia_events (
-    guia_id STRING,
-    membro_id STRING,
-    valor_autorizado DECIMAL(15, 2),
-    event_time TIMESTAMP(3),
-    WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'prod.saude.oracle-autorizacoes.guias.cdc.v1',
-    'properties.bootstrap.servers' = '${BOOTSTRAP_SERVERS}',
-    'properties.group.id' = 'glosa-detection',
-    'format' = 'avro-confluent',
-    'avro-confluent.url' = '${SCHEMA_REGISTRY_URL}'
-);
+-- No Flink gerenciado do Confluent Cloud, o topic com schema já aparece
+-- como tabela no catálogo — não há DDL de conector Kafka.
 
--- Glosa detection with CEP
-CREATE TABLE glosa_alerts AS
+-- Fraud detection with CEP (velocity: 3+ transactions in <60s)
+CREATE TABLE `dev.payments.flink.fraud.detected.v1` AS
 SELECT *
-FROM guia_events
+FROM `dev.payments.pg-payments.transactions.cdc.v1`
 MATCH_RECOGNIZE (
-    PARTITION BY membro_id
-    ORDER BY event_time
+    PARTITION BY account_id
+    ORDER BY `$rowtime`
     MEASURES
-        FIRST(A.guia_id) AS first_guia,
-        LAST(A.guia_id) AS last_guia,
-        COUNT(A.guia_id) AS guia_count
+        FIRST(A.transaction_id) AS first_txn,
+        LAST(A.transaction_id) AS last_txn,
+        COUNT(A.transaction_id) AS txn_count
     ONE ROW PER MATCH
     AFTER MATCH SKIP PAST LAST ROW
-    PATTERN (A{3,})
+    PATTERN (A{3,}) WITHIN INTERVAL '60' SECOND
     DEFINE
-        A AS A.valor_autorizado > 5000.00
-) AS glosa_pattern;
+        A AS A.amount > 0.00
+) AS velocity_pattern;
 ```
 
 #### Connector Configurations
 
 ```json
 {
-  "name": "source-oracle-autorizacoes",
+  "name": "pg-payments-cdc",
   "config": {
-    "connector.class": "io.debezium.connector.oracle.OracleConnector",
+    "connector.class": "PostgresCdcSourceV2",
     "database.hostname": "${DATABASE_HOST}",
-    "database.port": "1521",
+    "database.port": "5432",
     "database.user": "${DATABASE_USER}",
     "database.password": "${DATABASE_PASSWORD}",
-    "database.dbname": "PAYMENTS_DB",
-    "database.server.name": "oracle-autorizacoes",
-    "schema.include.list": "AUTORIZACOES",
-    "table.include.list": "AUTORIZACOES.GUIAS",
-    "database.history.kafka.bootstrap.servers": "${BOOTSTRAP_SERVERS}",
+    "database.dbname": "payments",
+    "topic.prefix": "pg-payments",
+    "schema.include.list": "payments",
+    "table.include.list": "payments.transactions",
+    "output.data.format": "AVRO",
     "transforms": "route,mask",
     "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
-    "transforms.route.regex": "oracle-autorizacoes.AUTORIZACOES.(.*)",
-    "transforms.route.replacement": "prod.saude.oracle-autorizacoes.$1.cdc.v1",
+    "transforms.route.regex": "pg-payments.payments.(.*)",
+    "transforms.route.replacement": "dev.payments.pg-payments.$1.cdc.v1",
     "transforms.mask.type": "org.apache.kafka.connect.transforms.MaskField$Value",
-    "transforms.mask.fields": "membro_cpf",
+    "transforms.mask.fields": "customer_cpf",
     "transforms.mask.replacement": "[MASKED]"
   }
 }
@@ -340,21 +327,21 @@ MATCH_RECOGNIZE (
 
 ```yaml
 dataContractSpecification: 0.9.3
-id: urn:datacontract:workshop:saude:autorizacoes:guias:events:v1
+id: urn:datacontract:bootcamp:payments:transactions:events:v1
 info:
-  title: Guia TISS Events
+  title: Payment Transaction Events
   version: 1.0.0
-  description: Real-time guia TISS authorization events
+  description: Real-time card/PIX transaction events
   owner: Data Platform Team
   contact:
-    name: the workshop Data Platform
+    name: Bootcamp Data Platform
     email: data-platform@example.com
 
 servers:
-  production:
+  dev:
     type: kafka
     host: pkc-xxxxx.us-east-1.aws.confluent.cloud:9092
-    topic: prod.saude.oracle-autorizacoes.guias.cdc.v1
+    topic: dev.payments.pg-payments.transactions.cdc.v1
     format: avro
 
 schema:
@@ -362,29 +349,29 @@ schema:
   specification: |
     {
       "type": "record",
-      "name": "GuiaEvent",
+      "name": "TransactionEvent",
       ...
     }
 
 quality:
   type: SodaCL
   specification: |
-    checks for guia_events:
+    checks for transaction_events:
       - row_count > 0
-      - missing(guia_id) = 0
-      - invalid(valor_autorizado) = 0:
+      - missing(transaction_id) = 0
+      - invalid(amount) = 0:
           valid min: 0.01
-      - duplicate(guia_id) = 0
+      - duplicate(transaction_id) = 0
 
 terms:
-  usage: Internal use for glosa detection and analytics
-  limitations: PII/PHI must remain tokenized
+  usage: Internal use for fraud detection and analytics
+  limitations: PII/PCI must remain tokenized/masked
   billing: N/A
   noticePeriod: 30 days
 
 sla:
   availability: 99.9%
-  retention: 1 year  # ANS compliance requirement
+  retention: 30 days  # lab budget — retention curta por default
   latency:
     p99: 100ms
     description: Event processing latency
@@ -407,8 +394,8 @@ Code Quality:
 - [ ] Logging (not print statements)
 
 Compliance:
-- [ ] PII fields tokenized/masked
-- [ ] ANS retention met (5 years)
+- [ ] PII fields tokenized/masked (PAN nunca cleartext)
+- [ ] Retention adequada ao lab (não deixar infinita)
 - [ ] LGPD annotations present
 - [ ] Audit fields included
 
@@ -492,11 +479,11 @@ After ACT phase, you should have:
 
 /src/
   ├── events/
-  │   └── guia_event.py           # Event handler code
+  │   └── transaction_event.py    # Event handler code
   ├── flink/
-  │   └── glosa_detection.sql     # Flink SQL job
+  │   └── fraud_detection.sql     # Flink SQL statement
   └── connectors/
-      └── oracle_autorizacoes.json # Connector config
+      └── pg_payments_cdc.json    # Managed connector config
 
 /terraform/
   ├── topics.tf                   # Kafka topics
@@ -504,10 +491,10 @@ After ACT phase, you should have:
   └── connectors.tf               # Managed connectors
 
 /schemas/
-  └── guia_event_v1.avsc          # Avro schema
+  └── transaction_event_v1.avsc   # Avro schema
 
 /contracts/
-  └── guia_events.yaml            # Data contract
+  └── transaction_events.yaml     # Data contract
 
 /docs/
   └── CHANGELOG.md                # Updated changelog
@@ -588,20 +575,20 @@ compliance and quality."
 ### Example 1: ACT - Create Kafka Topic
 
 ```markdown
-Task: Create Kafka topic for guias
+Task: Create Kafka topic for transactions
 
 ACT Phase:
 1. Mark task in_progress
 2. Use topic-designer skill:
-   - Name: prod.saude.oracle-autorizacoes.guias.cdc.v1
-   - Partitions: 24
-   - Retention: 1 year (ANS)
+   - Name: dev.payments.pg-payments.transactions.cdc.v1
+   - Partitions: 6
+   - Retention: 30 days (lab budget)
    - Replication: 3
 3. Generate Terraform:
-   - terraform/topics/guias_cdc.tf
+   - terraform/topics/transactions_cdc.tf
 4. Self-review:
    - Naming ✓
-   - ANS retention ✓
+   - Retention ✓
    - Compliance tags ✓
 5. Mark task completed
 
@@ -611,16 +598,16 @@ Output: Terraform file ready for deployment
 ### Example 2: ACT - Create Flink Job
 
 ```markdown
-Task: Create glosa detection Flink job
+Task: Create fraud detection Flink statement
 
 ACT Phase:
 1. Mark task in_progress
 2. Use flink-job-builder skill:
-   - Source: guia events topic
-   - Pattern: CEP for rapid guias
-   - Sink: glosa alerts topic
+   - Source: transactions CDC topic
+   - Pattern: CEP for transaction velocity
+   - Sink: fraud alerts topic
 3. Generate SQL:
-   - src/flink/glosa_detection.sql
+   - src/flink/fraud_detection.sql
 4. Self-review:
    - SQL syntax ✓
    - Watermarks ✓

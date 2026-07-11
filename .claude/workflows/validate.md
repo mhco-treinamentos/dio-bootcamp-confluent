@@ -9,7 +9,7 @@ The VALIDATE phase is the final quality gate before work is considered complete.
 ## Purpose
 
 - Verify code quality and standards compliance
-- Validate regulatory compliance (ANS, LGPD)
+- Validate regulatory compliance (LGPD, PCI-DSS)
 - Run tests and quality checks
 - Ensure documentation is complete
 - Generate compliance reports
@@ -27,7 +27,7 @@ The VALIDATE phase is the final quality gate before work is considered complete.
 
 ### Validation is Mandatory For:
 - Any PII handling
-- ANS-regulated data
+- LGPD/PCI-regulated data
 - Schema changes
 - Infrastructure changes
 - Security configurations
@@ -52,7 +52,7 @@ The VALIDATE phase is the final quality gate before work is considered complete.
 │     └─► Contract tests                                          │
 │                                                                  │
 │  3. COMPLIANCE                                                   │
-│     └─► ANS checklist                                         │
+│     └─► LGPD/PCI checklist                                         │
 │     └─► LGPD checklist                                          │
 │     └─► Security scan                                           │
 │                                                                  │
@@ -110,17 +110,17 @@ Every `VALIDATE` gate below is pass/fail against these hard thresholds. A run th
 ### Runtime SLOs (production-bound features)
 | Metric | Target |
 |--------|--------|
-| Oracle → Confluent CDC lag (p95) | < 30s |
-| Flink job end-to-end latency (p95) | < 60s for enrichment, < 5m for aggregation |
-| Snowflake MERGE task end-to-end latency (p95) | < 5 min for silver, < 15 min for gold |
+| Postgres → Kafka CDC lag (p95) | < 30s |
+| Flink statement end-to-end latency (p95) | < 60s for enrichment, < 5m for aggregation |
+| Tableflow materialization freshness (p95) | < 15 min |
 | Exactly-once guarantees | No duplicate / missed records after restart test |
-| Kafka replication factor | ≥ 3 (prod), ≥ 2 (staging) |
-| `min.insync.replicas` | ≥ 2 (prod) |
+| Kafka replication factor | 3 (Confluent Cloud default) |
+| `min.insync.replicas` | 2 |
 
 ### Compliance Thresholds
 | Check | Threshold |
 |-------|-----------|
-| ANS retention on regulated topics (guias, sinistros) | ≥ 365 days |
+| Retention on lab topics | ≤ 30 days (lab budget) |
 | LGPD PII tag coverage | 100% of sensitive-named fields tagged |
 | Secrets in code / `.tfvars` | 0 — enforced by code review + `tfsec` |
 | Service accounts per service | 1:1 (no shared credentials) |
@@ -218,8 +218,8 @@ pytest tests/integration/ -v
 
 # Contract tests (schema compatibility)
 schema-registry-tools test-compatibility \
-  --schema-file schemas/guia_v2.avsc \
-  --subject guias-value
+  --schema-file schemas/transaction_v2.avsc \
+  --subject transactions-value
 ```
 
 ### Test Checklist
@@ -237,14 +237,14 @@ schema-registry-tools test-compatibility \
 
 ## Step 3: Compliance
 
-### ANS Compliance Checklist
+### LGPD/PCI Compliance Checklist
 
 ```markdown
-Using compliance-checker skill with ANS rules:
+Using compliance-checker skill with LGPD/PCI rules:
 
 Data Retention:
-- [ ] Domain-specific claims (legacy: guias de saúde; current workshop: estornos): 1 year minimum per ANS
-- [ ] Glosa alerts: 365 days minimum
+- [ ] Refunds/disputes retention adequada ao lab (30 dias default)
+- [ ] Fraud alerts: 365 days minimum
 - [ ] No automatic deletion of regulated data
 
 Audit Trail:
@@ -288,7 +288,7 @@ Documentation:
 
 Schema Annotations:
 - [ ] PII fields have `confluent:tags: ["PII", "LGPD"]`
-- [ ] PHI fields have `confluent:tags: ["PHI", "SAUDE", "ANS"]`
+- [ ] PCI fields have `confluent:tags: ["PCI"]` (PAN sempre mascarado)
 - [ ] Sensitive fields documented
 ```
 
@@ -308,7 +308,7 @@ Security checks:
 
 ```markdown
 "Use compliance-checker skill to validate all artifacts
-against ANS and LGPD requirements"
+against LGPD and PCI-DSS requirements"
 
 Output:
 - Compliance status (PASS/FAIL)
@@ -336,10 +336,10 @@ Schema checks:
 
 ```yaml
 # Example SodaCL checks
-checks for guia_events:
+checks for transaction_events:
   # Completeness
   - row_count > 0
-  - missing(guia_id) = 0
+  - missing(transaction_id) = 0
   - missing(timestamp) = 0
 
   # Validity
@@ -349,17 +349,17 @@ checks for guia_events:
       valid max: now()
 
   # Uniqueness
-  - duplicate(guia_id) = 0
+  - duplicate(transaction_id) = 0
 
   # Timeliness
   - freshness(timestamp) < 5m
 
   # Custom
   - failed rows:
-      name: invalid_membro_cpf_format
+      name: invalid_customer_cpf_format
       fail query: |
-        SELECT * FROM guia_events
-        WHERE membro_cpf NOT SIMILAR TO '[0-9]{11}'
+        SELECT * FROM transaction_events
+        WHERE customer_cpf NOT SIMILAR TO '[0-9]{11}'
 ```
 
 ### Data Contract Verification
@@ -427,7 +427,7 @@ completeness and generate any missing docs"
 |----------|--------|-------|
 | Code Quality | PASS | 95% |
 | Tests | PASS | 87% coverage |
-| ANS Compliance | PASS | 100% |
+| LGPD/PCI Compliance | PASS | 100% |
 | LGPD Compliance | PASS | 100% |
 | Data Quality | PASS | All checks |
 | Documentation | PASS | Complete |
@@ -464,7 +464,7 @@ completeness and generate any missing docs"
 
 ## Compliance
 
-### ANS
+### LGPD/PCI
 - Retention: 5 years ✓
 - Audit trail: Complete ✓
 - Replication: 3 ✓
@@ -526,7 +526,7 @@ Ready for PR/deployment.
 | Skill | Purpose |
 |-------|---------|
 | `code-reviewer` | Review code quality |
-| `compliance-checker` | ANS/LGPD validation |
+| `compliance-checker` | LGPD/PCI validation |
 | `validation` | Schema and config validation |
 | `governance-reporter` | Generate compliance reports |
 | `doc-generator` | Verify documentation |
@@ -559,7 +559,7 @@ If validation fails:
 |----------|---------|--------|
 | Code Quality | Style violations | Fix and retry |
 | Test Failure | Unit test fails | Fix code and retry |
-| Compliance | ANS violation | MUST fix |
+| Compliance | LGPD/PCI violation | MUST fix |
 | Schema | Incompatible change | Review evolution strategy |
 | Documentation | Missing CHANGELOG | Add and retry |
 
@@ -571,7 +571,7 @@ If validation fails:
 
 - [ ] All code quality checks pass
 - [ ] All tests pass with required coverage
-- [ ] ANS compliance verified
+- [ ] LGPD/PCI compliance verified
 - [ ] LGPD compliance verified
 - [ ] Security scan clean
 - [ ] Schema validated
@@ -600,7 +600,7 @@ Ready to create PR and proceed to deployment."
 ### Example 1: Validate Kafka Topic Implementation
 
 ```markdown
-VALIDATE Phase for: Guias CDC Topic
+VALIDATE Phase for: Transactions CDC Topic
 
 1. Code Quality:
    - Terraform fmt: PASS
@@ -612,7 +612,7 @@ VALIDATE Phase for: Guias CDC Topic
    - Apply dry-run: PASS
 
 3. Compliance:
-   - ANS retention (1 year): PASS
+   - Retention (30 days, lab budget): PASS
    - Replication factor (3): PASS
    - min.insync.replicas (2): PASS
 
@@ -630,7 +630,7 @@ Result: READY FOR DEPLOYMENT ✓
 ### Example 2: Validate Flink Job
 
 ```markdown
-VALIDATE Phase for: Glosa Detection Flink Job
+VALIDATE Phase for: Fraud Detection Flink Job
 
 1. Code Quality:
    - SQL syntax: PASS

@@ -2,291 +2,168 @@
 
 ## Skill: `/connector-configurator`
 
-Configure Kafka Connect connectors with proper settings, Single Message Transforms (SMTs), error handling, and monitoring. Covers Oracle CDC source, JDBC sink, S3 sink, and Snowflake sink connectors for the workshop's Confluent Cloud platform.
+Configura **conectores gerenciados do Confluent Cloud** com SMTs, tratamento de erros (DLQ) e monitoramento. Cobre o source Debezium Postgres do bootcamp e sinks (S3, Snowflake, MongoDB). Complementa [skills/confluent/managed-connector.md](../confluent/managed-connector.md) (passo a passo do módulo 3) com foco em **design da configuração**.
 
 ## Usage
 
 ```
-/connector-configurator <connector-type> <domain> [options]
+/connector-configurator <connector-type> [options]
 ```
 
 ### Connector Types
-- `oracle-cdc` - Debezium Oracle CDC Source
-- `confluent-oracle-cdc` - Confluent managed Oracle CDC Source
-- `jdbc-sink` - JDBC Sink for data warehouse
-- `s3-sink` - S3 Sink for data lake
-- `snowflake-sink` - Snowflake Sink for semantic layer
+- `postgres-cdc` — Debezium Postgres CDC Source (`PostgresCdcSourceV2`)
+- `s3-sink` — S3 Sink (data lake bruto / comparação com Tableflow)
+- `snowflake-sink` — Snowflake Sink (DW)
+- `mongodb-sink` — MongoDB Atlas Sink (NoSQL)
+- `datagen` — Datagen Source (mock rápido)
 
 ### Options
-- `--managed` - Use Confluent Cloud managed connector
-- `--self-managed` - Use self-managed (Connect worker on ECS)
-- `--env` - Environment: dev, staging, prod
-- `--schema` - Oracle schema: BENEFICIARIOS, AUTORIZACOES, PRESTADORES, FATURAMENTO
+- `--stage` — `dev` | `lab` (não há prod no bootcamp)
+- `--tables` — Tabelas do Postgres fonte (`public.accounts,public.cards,public.transactions`)
 
 ---
 
-## Oracle CDC Source (Debezium)
-
-### Beneficiários Connector
+## Postgres CDC Source (Debezium managed)
 
 ```json
 {
-  "name": "oracle-cdc-beneficiarios",
-  "config": {
-    "connector.class": "io.debezium.connector.oracle.OracleConnector",
-    "tasks.max": "1",
+  "name": "pg-payments-cdc-source",
+  "connector.class": "PostgresCdcSourceV2",
+  "kafka.auth.mode": "SERVICE_ACCOUNT",
+  "kafka.service.account.id": "<sa-id>",
 
-    "database.hostname": "oracle.workshop.local",
-    "database.port": "1521",
-    "database.user": "${ORACLE_CDC_USER}",
-    "database.password": "${ORACLE_CDC_PASSWORD}",
-    "database.dbname": "PAYMENTS_DB",
-    "database.pdb.name": "XEPDB1",
+  "database.hostname": "<pg-host>",
+  "database.port": "5432",
+  "database.user": "cdc_user",
+  "database.password": "${PG_CDC_PASSWORD}",
+  "database.dbname": "payments",
+  "database.sslmode": "prefer",
 
-    "schema.include.list": "BENEFICIARIOS",
-    "table.include.list": "BENEFICIARIOS.MEMBROS,BENEFICIARIOS.DEPENDENTES,BENEFICIARIOS.PLANOS,BENEFICIARIOS.COBERTURAS,BENEFICIARIOS.CARENCIAS",
+  "topic.prefix": "dev.payments.pg-payments",
+  "table.include.list": "public.accounts,public.cards,public.transactions",
+  "slot.name": "dbz_bootcamp",
+  "publication.name": "dbz_publication",
+  "snapshot.mode": "initial",
 
-    "topic.prefix": "oracle-beneficiarios",
-    "database.server.name": "oracle-beneficiarios",
+  "output.data.format": "AVRO",
+  "output.key.format": "AVRO",
+  "after.state.only": "false",
+  "tombstones.on.delete": "true",
 
-    "snapshot.mode": "initial",
-    "snapshot.locking.mode": "none",
+  "transforms": "route,maskPii,insertMeta",
+  "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+  "transforms.route.regex": "dev\\.payments\\.pg-payments\\.public\\.(.*)",
+  "transforms.route.replacement": "dev.payments.pg-payments.$1.cdc.v1",
+  "transforms.maskPii.type": "org.apache.kafka.connect.transforms.MaskField$Value",
+  "transforms.maskPii.fields": "cpf,email,phone",
+  "transforms.maskPii.replacement": "[MASKED]",
+  "transforms.insertMeta.type": "org.apache.kafka.connect.transforms.InsertField$Value",
+  "transforms.insertMeta.timestamp.field": "kafka_ingested_at",
 
-    "log.mining.strategy": "online_catalog",
-    "log.mining.batch.size.min": 1000,
-    "log.mining.batch.size.max": 10000,
-    "log.mining.sleep.time.min.ms": 0,
-    "log.mining.sleep.time.max.ms": 3000,
-    "log.mining.sleep.time.default.ms": 1000,
-    "log.mining.sleep.time.increment.ms": 200,
-
-    "decimal.handling.mode": "precise",
-    "time.precision.mode": "connect",
-
-    "heartbeat.interval.ms": 10000,
-    "heartbeat.action.query": "INSERT INTO BENEFICIARIOS.DEBEZIUM_HEARTBEAT (id, ts) VALUES (1, SYSTIMESTAMP)",
-
-    "schema.history.internal.kafka.topic": "_schemas.oracle-beneficiarios.history",
-    "schema.history.internal.kafka.bootstrap.servers": "${BOOTSTRAP_SERVERS}",
-
-    "provide.transaction.metadata": true,
-    "include.schema.changes": true,
-
-    "key.converter": "io.confluent.connect.avro.AvroConverter",
-    "key.converter.schema.registry.url": "${SCHEMA_REGISTRY_URL}",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "${SCHEMA_REGISTRY_URL}",
-
-    "transforms": "unwrap,route,insertMeta",
-    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-    "transforms.unwrap.drop.tombstones": "false",
-    "transforms.unwrap.delete.handling.mode": "rewrite",
-    "transforms.unwrap.add.fields": "op,source.ts_ms,source.scn",
-
-    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
-    "transforms.route.regex": "oracle-beneficiarios\\.BENEFICIARIOS\\.(.*)",
-    "transforms.route.replacement": "prod.saude.oracle-beneficiarios.$1.cdc.v1",
-
-    "transforms.insertMeta.type": "org.apache.kafka.connect.transforms.InsertField$Value",
-    "transforms.insertMeta.timestamp.field": "kafka_ingested_at",
-
-    "errors.tolerance": "all",
-    "errors.deadletterqueue.topic.name": "prod.saude.oracle-beneficiarios.dlq.v1",
-    "errors.deadletterqueue.context.headers.enable": true,
-    "errors.log.enable": true,
-    "errors.log.include.messages": true
-  }
+  "tasks.max": "1"
 }
 ```
 
+Deploy: `confluent connect cluster create --config-file pg-payments-cdc-source.json`.
+
 ---
 
-## Connector Per Oracle Schema Strategy
+## Mapa fonte → topics (naming de rules.md)
 
-| Connector Name | Oracle Schema | Tables | Topic Prefix |
-|---------------|--------------|--------|--------------|
-| `oracle-cdc-beneficiarios` | BENEFICIARIOS | MEMBROS, DEPENDENTES, PLANOS, COBERTURAS, CARENCIAS | `prod.saude.oracle-beneficiarios` |
-| `oracle-cdc-autorizacoes` | AUTORIZACOES | GUIAS, GUIA_ITEMS, AUTORIZACOES, LAUDOS | `prod.saude.oracle-autorizacoes` |
-| `oracle-cdc-prestadores` | PRESTADORES | PRESTADORES, CONTRATOS, TABELAS_NEGOCIADAS, CREDENCIAMENTOS | `prod.saude.oracle-prestadores` |
-| `oracle-cdc-faturamento` | FATURAMENTO | FATURAS, MENSALIDADES, COPARTICIPACOES, GLOSAS | `prod.saude.oracle-faturamento` |
+| Tabela Postgres | Topic |
+|-----------------|-------|
+| `public.accounts` | `dev.payments.pg-payments.accounts.cdc.v1` |
+| `public.cards` | `dev.payments.pg-payments.cards.cdc.v1` |
+| `public.transactions` | `dev.payments.pg-payments.transactions.cdc.v1` |
+| (erros) | `dev.payments.pg-payments.dlq.v1` |
 
 ---
 
 ## SMT Patterns
 
-### Unwrap + Route + Mask + Metadata (Full Chain)
+### Cadeia completa (route + mask + metadata)
 
-```json
-"transforms": "unwrap,route,maskPii,insertMeta",
+Ver o JSON acima. Regras de escolha:
 
-"transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-"transforms.unwrap.drop.tombstones": "false",
-"transforms.unwrap.delete.handling.mode": "rewrite",
-"transforms.unwrap.add.fields": "op,source.ts_ms",
-
-"transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
-"transforms.route.regex": "oracle-beneficiarios\\.BENEFICIARIOS\\.(.*)",
-"transforms.route.replacement": "prod.saude.oracle-beneficiarios.$1.cdc.v1",
-
-"transforms.maskPii.type": "org.apache.kafka.connect.transforms.MaskField$Value",
-"transforms.maskPii.fields": "cpf,cns,email,telefone",
-"transforms.maskPii.replacement": "[MASKED]",
-
-"transforms.insertMeta.type": "org.apache.kafka.connect.transforms.InsertField$Value",
-"transforms.insertMeta.timestamp.field": "kafka_ingested_at"
-```
-
-### Flatten Nested Structures
-
-```json
-"transforms.flatten.type": "org.apache.kafka.connect.transforms.Flatten$Value",
-"transforms.flatten.delimiter": "_"
-```
-
-### Filter by Operation Type
-
-```json
-"transforms": "filterDeletes",
-"transforms.filterDeletes.type": "org.apache.kafka.connect.transforms.Filter",
-"transforms.filterDeletes.predicate": "isDelete",
-"predicates": "isDelete",
-"predicates.isDelete.type": "org.apache.kafka.connect.transforms.predicates.HasHeaderKey",
-"predicates.isDelete.name": "__debezium.op"
-```
+| SMT | Quando usar |
+|-----|-------------|
+| `RegexRouter` | Sempre — nome CDC cru não segue a convenção do bootcamp |
+| `MaskField$Value` | PII que não pode chegar a topic em claro (LGPD); PAN **nunca** chega em claro |
+| `InsertField$Value` | Timestamp de ingestão p/ medir lag end-to-end no módulo 7 |
+| `ExtractField$Key` / `ValueToKey` | Ajustar chave de partição (ex.: `account_id`) |
+| `Filter` + `RecordIsTombstone` | Sink que não trata tombstone |
+| `Flatten$Value` | Sink tabular que não aceita struct aninhada |
 
 ---
 
-## S3 Sink Connector
+## Sinks
 
-### Data Lake Export
+### S3 Sink (Parquet, particionado por hora)
 
 ```json
 {
-  "name": "s3-sink-enriched-guias",
-  "config": {
-    "connector.class": "io.confluent.connect.s3.S3SinkConnector",
-    "tasks.max": "4",
-
-    "topics": "prod.saude.flink.guias.enriched.v1",
-
-    "s3.region": "us-east-1",
-    "s3.bucket.name": "workshop-data-lake-prod",
-    "topics.dir": "raw/saude/guias",
-
-    "format.class": "io.confluent.connect.s3.format.parquet.ParquetFormat",
-    "parquet.codec": "snappy",
-
-    "partitioner.class": "io.confluent.connect.storage.partitioner.TimeBasedPartitioner",
-    "path.format": "'year'=YYYY/'month'=MM/'day'=dd/'hour'=HH",
-    "partition.duration.ms": "3600000",
-    "locale": "pt_BR",
-    "timezone": "America/Sao_Paulo",
-
-    "flush.size": "10000",
-    "rotate.interval.ms": "3600000",
-    "rotate.schedule.interval.ms": "3600000",
-
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "${SCHEMA_REGISTRY_URL}",
-
-    "storage.class": "io.confluent.connect.s3.storage.S3Storage",
-    "store.url": "https://s3.us-east-1.amazonaws.com",
-
-    "errors.tolerance": "all",
-    "errors.deadletterqueue.topic.name": "prod.saude.s3-sink.dlq.v1",
-    "errors.deadletterqueue.context.headers.enable": true
-  }
+  "name": "s3-sink-transactions-enriched",
+  "connector.class": "S3_SINK",
+  "kafka.auth.mode": "SERVICE_ACCOUNT",
+  "kafka.service.account.id": "<sa-id>",
+  "topics": "dev.payments.flink.transactions.enriched.v1",
+  "input.data.format": "AVRO",
+  "s3.bucket.name": "bootcamp-payments-lake",
+  "aws.access.key.id": "${AWS_ACCESS_KEY_ID}",
+  "aws.secret.access.key": "${AWS_SECRET_ACCESS_KEY}",
+  "output.data.format": "PARQUET",
+  "time.interval": "HOURLY",
+  "flush.size": "1000",
+  "tasks.max": "1"
 }
 ```
 
----
-
-## JDBC Sink Connector
-
-### Data Warehouse Export
+### Snowflake Sink
 
 ```json
 {
-  "name": "jdbc-sink-enriched-guias",
-  "config": {
-    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
-    "tasks.max": "2",
-
-    "topics": "prod.saude.flink.guias.enriched.v1",
-
-    "connection.url": "${JDBC_URL}",
-    "connection.user": "${JDBC_USER}",
-    "connection.password": "${JDBC_PASSWORD}",
-
-    "insert.mode": "upsert",
-    "pk.mode": "record_key",
-    "pk.fields": "guia_id",
-    "auto.create": "false",
-    "auto.evolve": "false",
-    "table.name.format": "enriched_guias",
-
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "io.confluent.connect.avro.AvroConverter",
-    "value.converter.schema.registry.url": "${SCHEMA_REGISTRY_URL}",
-
-    "batch.size": "3000",
-
-    "errors.tolerance": "all",
-    "errors.deadletterqueue.topic.name": "prod.saude.jdbc-sink.dlq.v1",
-    "errors.deadletterqueue.context.headers.enable": true
-  }
+  "name": "snowflake-sink-fraud",
+  "connector.class": "SnowflakeSink",
+  "kafka.auth.mode": "SERVICE_ACCOUNT",
+  "kafka.service.account.id": "<sa-id>",
+  "topics": "dev.payments.flink.fraud.detected.v1",
+  "input.data.format": "AVRO",
+  "snowflake.url.name": "${SNOWFLAKE_URL}",
+  "snowflake.user.name": "${SNOWFLAKE_USER}",
+  "snowflake.private.key": "${SNOWFLAKE_PRIVATE_KEY}",
+  "snowflake.database.name": "PAYMENTS",
+  "snowflake.schema.name": "STREAMING",
+  "tasks.max": "1"
 }
 ```
 
+> Campos exatos por plugin: `confluent connect plugin describe <plugin>` — é a fonte da verdade, não este arquivo.
+
 ---
 
-## Error Handling Configuration
-
-### Standard DLQ Setup
+## Error handling (DLQ)
 
 ```json
 "errors.tolerance": "all",
-"errors.deadletterqueue.topic.name": "<topic-prefix>.dlq.v1",
-"errors.deadletterqueue.topic.replication.factor": 3,
-"errors.deadletterqueue.context.headers.enable": true,
-"errors.log.enable": true,
-"errors.log.include.messages": true,
-"errors.retry.delay.max.ms": "60000",
-"errors.retry.timeout": "300000"
+"errors.deadletterqueue.topic.name": "dev.payments.pg-payments.dlq.v1",
+"errors.deadletterqueue.context.headers.enable": "true",
+"errors.log.enable": "true",
+"errors.log.include.messages": "true"
 ```
+
+Em sinks gerenciados, sem nome explícito o Cloud cria `dlq-<lcc-id>` automaticamente. Lab do módulo 3: injetar poison pill (generators/poison-pill-injector) e rastrear o registro na DLQ pelos headers.
 
 ---
 
-## Health Monitoring
-
-### REST API Commands
+## Monitoramento
 
 ```bash
-# Check connector status
-curl -s http://connect:8083/connectors/<name>/status | jq '{
-  connector: .connector.state,
-  tasks: [.tasks[] | {id: .id, state: .state}]
-}'
+confluent connect cluster list
+confluent connect cluster describe <lcc-id>
+confluent connect event describe
 
-# Restart failed task
-curl -X POST http://connect:8083/connectors/<name>/tasks/0/restart
-
-# Pause / Resume
-curl -X PUT http://connect:8083/connectors/<name>/pause
-curl -X PUT http://connect:8083/connectors/<name>/resume
-
-# All connectors health
-for c in $(curl -s http://connect:8083/connectors | jq -r '.[]'); do
-  echo "$c: $(curl -s http://connect:8083/connectors/$c/status | jq -r '.connector.state')"
-done
-```
-
-### Confluent CLI (Managed Connectors)
-
-```bash
-confluent connect cluster list --cluster <cluster-id>
-confluent connect cluster describe <connector-id> --cluster <cluster-id>
+# Alerta base do módulo 7: DLQ > 0
+confluent kafka topic consume dev.payments.pg-payments.dlq.v1 --from-beginning --print-key
 ```
 
 ---
@@ -294,38 +171,32 @@ confluent connect cluster describe <connector-id> --cluster <cluster-id>
 ## Configuration Checklist
 
 ```markdown
-For every connector:
+Para todo conector:
 
-Connection:
-- [ ] Credentials via environment variables (never hardcoded)
-- [ ] Network connectivity verified (PrivateLink for Cloud)
-- [ ] Minimum required privileges for database user
+Conexão:
+- [ ] Credenciais via env vars/placeholders (nunca hardcoded, nunca commitadas)
+- [ ] Postgres do lab alcançável pela cloud (túnel/IP público + firewall)
+- [ ] Usuário do banco com privilégio mínimo (cdc_user REPLICATION + SELECT)
 
-Data Quality:
-- [ ] Key + value converters set to Avro
-- [ ] Schema Registry URL and credentials configured
-- [ ] decimal.handling.mode = precise (payments financial data)
+Dados:
+- [ ] output/input.data.format = AVRO (integra SR e habilita Tableflow depois)
+- [ ] Compatibilidade BACKWARD nos subjects gerados
+- [ ] PII mascarada na borda (MaskField) ou tokenizada no Flink (Live 3)
 
-Error Handling:
-- [ ] DLQ topic configured with context headers
-- [ ] Error tolerance set appropriately
-- [ ] Error logging enabled
+Erros:
+- [ ] DLQ nomeada na convenção + context headers habilitados
+- [ ] errors.log.enable = true
 
-Topic Naming:
-- [ ] SMTs route to the workshop naming convention
-- [ ] DLQ follows naming convention
+Naming:
+- [ ] RegexRouter aplicando {stage}.{domain}.{source}.{entity}.{event_type}.v{version}
+- [ ] DLQ segue a mesma convenção
 
-Performance:
-- [ ] Batch size tuned for throughput
-- [ ] tasks.max set (1 for CDC, higher for sinks)
-
-Compliance:
-- [ ] PII/PHI fields masked at connector level if needed
-- [ ] Heartbeat enabled for CDC connectors
-- [ ] Transaction metadata enabled for audit
+Operação:
+- [ ] tasks.max = 1 (labs)
+- [ ] Service account próprio com ACLs mínimas
+- [ ] Delete do conector no teardown.sh do lab (créditos!)
 ```
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-02-12
+**Última atualização**: 2026-07-11

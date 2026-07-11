@@ -139,25 +139,23 @@ class GuiaGenerator:
 
 ---
 
-## Oracle-Direct Simulator Pattern (Workshop & CDC-First Pipelines)
+## Postgres-Direct Simulator Pattern (Labs de CDC — módulo 3)
 
-Two distinct generator patterns exist, and the choice affects everything downstream:
+Existem dois padrões de gerador, e a escolha afeta tudo downstream:
 
 | Pattern | Where data lands first | When to use |
 |---------|------------------------|-------------|
-| **Kafka-direct** (default above) | Kafka topic via `confluent_kafka.Producer` | Simulating events that originate as messages (IoT, app events, synthetic stream tests) |
-| **Oracle-direct** | Oracle table via `python-oracledb` DML; CDC carries it to Kafka | Simulating an operational system where CDC is the source of truth (workshop stack, most prod scenarios) |
+| **Kafka-direct** (default above) | Kafka topic via `confluent_kafka.Producer` | Eventos que nascem como mensagem (labs dos módulos 2 e 4; testes de stream sintético) |
+| **Postgres-direct** | Tabela Postgres via DML (`psycopg`); o conector Debezium gerenciado leva ao Kafka | Simular o sistema operacional onde o CDC é a fonte da verdade (módulo 3 e desafio final) |
 
-### Oracle-Direct Rationale
-The workshop (`ws-fundamentals-kafka-cdc/samples/Hospital_DataGen_v2.md`) and the the workshop production platform both use Oracle → Debezium → Kafka. Generating data **into Oracle** exercises the real pipeline — you see CDC lag, LogMiner behavior, schema mapping, and SMT effects. Generating directly to Kafka bypasses all of that.
+### Racional do Postgres-direct
+O lab do módulo 3 e o desafio final usam **Postgres 16 (Docker, `wal_level=logical`) → Debezium managed → Confluent Cloud**. Gerar dados **dentro do Postgres** exercita o pipeline real — snapshot, replicação lógica, envelope Debezium, SMTs e DLQ. Gerar direto no Kafka pula tudo isso.
 
 ### Dependencies
 ```txt
 # requirements.txt
-python-oracledb==2.0.1   # Official successor to cx_Oracle since 2022
+psycopg[binary]==3.1.*
 ```
-
-`python-oracledb` in **thin mode** (default) needs no Oracle Instant Client. All DML/DDL operations work out of the box.
 
 ### Connection Helper
 ```python
@@ -169,18 +167,20 @@ import os
 from contextlib import contextmanager
 from typing import Iterator
 
-import oracledb
+import psycopg
 
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def connect() -> Iterator[oracledb.Connection]:
-    """Connect to Oracle XE (thin mode). Reads connection info from env vars."""
-    conn = oracledb.connect(
-        user=os.environ["ORACLE_USER"],
-        password=os.environ["ORACLE_PASS"],
-        dsn=f"{os.environ['ORACLE_HOST']}:{os.environ['ORACLE_PORT']}/{os.environ['ORACLE_SERVICE']}",
+def connect() -> Iterator[psycopg.Connection]:
+    """Connect to the lab Postgres (CDC source). Reads connection info from env vars."""
+    conn = psycopg.connect(
+        host=os.environ["PG_HOST"],
+        port=os.environ.get("PG_PORT", "5432"),
+        dbname=os.environ["PG_DBNAME"],
+        user=os.environ["PG_USER"],
+        password=os.environ["PG_PASSWORD"],
     )
     try:
         yield conn
@@ -198,63 +198,58 @@ def connect() -> Iterator[oracledb.Connection]:
 from __future__ import annotations
 
 import logging
-import random
 from datetime import datetime
+from decimal import Decimal
 
 from db import connect
 
 logger = logging.getLogger(__name__)
 
 
-def admit_patient(paciente_id: int, leito_id: int, cid: str) -> int:
-    """Admit a patient: INSERT internacao, UPDATE leito status.
+def create_transaction(account_id: str, card_id: str, amount: Decimal, mcc: str) -> int:
+    """Create a payment transaction: INSERT transaction, UPDATE account balance.
 
-    Returns the new internacao_id.
+    Returns the new transaction_id (captured by the Debezium connector).
     """
     with connect() as conn:
         cur = conn.cursor()
-        internacao_id_var = cur.var(oracledb.NUMBER)
         cur.execute(
             """
-            INSERT INTO internacoes (paciente_id, leito_id, cid, data_entrada)
-            VALUES (:p, :l, :c, :d)
-            RETURNING id INTO :id_out
+            INSERT INTO transactions (account_id, card_id, amount, mcc, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING transaction_id
             """,
-            p=paciente_id,
-            l=leito_id,
-            c=cid,
-            d=datetime.now(),
-            id_out=internacao_id_var,
+            (account_id, card_id, amount, mcc, datetime.now()),
         )
+        transaction_id = int(cur.fetchone()[0])
         cur.execute(
-            "UPDATE leitos SET status = 'OCUPADO' WHERE id = :l",
-            l=leito_id,
+            "UPDATE accounts SET balance = balance - %s WHERE account_id = %s",
+            (amount, account_id),
         )
-        internacao_id = int(internacao_id_var.getvalue()[0])
-        logger.info("Admitted paciente %d → leito %d (CID %s)", paciente_id, leito_id, cid)
-        return internacao_id
+        logger.info("Transaction %d: account %s, BRL %s", transaction_id, account_id, amount)
+        return transaction_id
 ```
 
-### Key Rules for Oracle-Direct Simulators
+### Key Rules for Postgres-Direct Simulators
 
 1. **Use transactions** — `with connect() as conn:` commits on exit, rolls back on exception. Never leave half-states that break downstream CDC consistency.
-2. **Respect supplemental logging requirements** — every CDC'd table needs a stable PK and `SUPPLEMENTAL LOG DATA (ALL) COLUMNS`. See [rules/sql.md](../../rules/sql.md).
-3. **Use bind parameters** — `:p`, `:l`, etc. Never f-string user inputs into SQL (this is a rule anyway — see [rules/sql.md](../../rules/sql.md)).
-4. **Seed for determinism** — `random.seed(42)` at the top of the simulator so every attendee of a workshop sees identical data.
-5. **Orchestrate with a scene runner** — wrap the simulator in a bash script (`run_demo.sh`) that exposes named scenes (`cena1`, `cena2`, `cena3`) with a single verb per scene. See [rules/workshop.md](../../rules/workshop.md) for scene design.
+2. **Every CDC'd table needs a stable PK** and must be included in the Debezium publication (`CREATE PUBLICATION ... FOR TABLE ...` — see [skills/confluent/managed-connector.md](../confluent/managed-connector.md)).
+3. **Use bind parameters** — `%s` placeholders. Never f-string values into SQL (see [rules/sql.md](../../rules/sql.md)).
+4. **Seed for determinism** — `random.seed(42)` at the top of the simulator so every aluno sees identical data.
+5. **Orchestrate per lab** — wrap the simulator in a script with named steps per lab do módulo (setup → generate → verify → teardown). See [rules/labs.md](../../rules/labs.md).
 
 ### When to Prefer Kafka-Direct
 
-- Testing Flink SQL independently of Oracle + Debezium
-- Stress-testing Kafka throughput
-- Simulating external event sources (webhooks, IoT) that do not land in Oracle
+- Labs de Flink SQL independentes do CDC (módulo 4)
+- Stress test de throughput Kafka
+- Eventos externos que não passam pelo banco (webhooks, apps)
 
-Otherwise, Oracle-direct is closer to production and exercises more of the real pipeline.
+Nos labs de CDC (módulo 3) e no desafio final, Postgres-direct exercita mais do pipeline real.
 
-### Example Usage (Oracle-Direct)
+### Example Usage (Postgres-Direct)
 
 ```
-"Build an Oracle-direct simulator for hospital admissions using python-oracledb"
-"Create a run_demo.sh scene runner with cena1/cena2/cena3 scenes for the workshop"
-"Extend the admission simulator to also generate exames TISS records"
+"Build a Postgres-direct simulator for payment transactions using psycopg"
+"Create the lab runner do módulo 3 com setup/generate/verify/teardown"
+"Extend the transaction simulator to also update card limits (multi-table CDC)"
 ```

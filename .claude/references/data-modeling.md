@@ -1,8 +1,8 @@
 # Data Modeling Reference
 
-> **Domain data modeling patterns for the workshop payments data generation**
+> **Domain data modeling patterns for the bootcamp payments data generation**
 
-## Domain examples (legacy: health insurance; current workshop uses payments)
+## Domain examples (legacy: health insurance; the bootcamp uses payments)
 
 ### Membro (Member) Model
 ```python
@@ -188,7 +188,7 @@ class Event:
     event_id: str
     event_type: str              # entity.action (e.g., guia.autorizada)
     event_time: datetime
-    source: str                  # Oracle schema that generated
+    source: str                  # Source system/connector that generated
     subject: str                 # Entity ID affected
     data: dict                   # Event payload
     metadata: dict = field(default_factory=dict)

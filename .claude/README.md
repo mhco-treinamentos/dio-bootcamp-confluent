@@ -1,8 +1,8 @@
-# Claude Code Configuration — data-streaming-tour
+# Claude Code Configuration — Bootcamp Confluent Cloud 2026
 
-> **Workshop pt-BR de streaming de dados ponta a ponta. Stack 100% Docker Compose: Kafka + Oracle CDC + Flink SQL + Iceberg/Trino. Domínio: pagamentos/financeiro.**
+> **Labs hands-on e implementação de referência do Desafio Final do Bootcamp Confluent Cloud 2026 (DIO). Stack 100% Confluent Cloud gerenciado: Kafka + Schema Registry + Connect/CDC + Flink SQL + Tableflow/Iceberg + Real-Time AI. Domínio: pagamentos/detecção de fraude.**
 
-Esta pasta contém toda a configuração do Claude Code para construir e manter o material do workshop. As regras, hooks, agents e skills foram adaptados a partir de uma configuração de plataforma de produção e enxutos para o contexto pedagógico.
+Esta pasta contém toda a configuração do Claude Code para construir e manter o código do bootcamp. O programa completo (blocos, cursos e aulas) está em [`docs/Bootcamp_Confluent_Cloud_2026_v3.pdf`](../docs/Bootcamp_Confluent_Cloud_2026_v3.pdf).
 
 ---
 
@@ -10,22 +10,29 @@ Esta pasta contém toda a configuração do Claude Code para construir e manter 
 
 | Componente | Detalhe |
 |------------|---------|
-| **Banco fonte** | Oracle XE 21c (em Docker, com supplemental logging para CDC) |
-| **CDC** | Debezium Oracle Connector (Kafka Connect) |
-| **Transporte** | Apache Kafka + Schema Registry (Confluent Platform Docker) |
-| **Processamento** | Apache Flink 1.19 (self-managed, SQL Client) |
-| **Lakehouse** | Apache Iceberg + Nessie catalog + MinIO + Trino |
-| **Linguagem** | Python 3.11+ (geradores), SQL (Flink + Trino) |
+| **Plataforma** | Confluent Cloud (environments, clusters, service accounts, API keys via CLI `confluent`) |
+| **Ingestão/CDC** | Conectores gerenciados no Confluent Cloud (Debezium source, sinks DW/NoSQL/Object Storage) |
+| **Schemas** | Schema Registry + Data Contracts (Avro, compatibilidade BACKWARD) |
+| **Processamento** | Flink SQL gerenciado (compute pools, statements) |
+| **Lakehouse** | Tableflow → Apache Iceberg (catálogos: AWS Glue, Snowflake Open Catalog, Databricks Unity) |
+| **Real-Time AI** | `CREATE MODEL` + `ML_PREDICT` no Flink SQL, embeddings e Vector Search |
+| **Operação** | Metrics API, consumer lag, RBAC/ACLs, Tiered Storage, DR |
+| **Fallback local** | Docker Compose enxuto (1 broker KRaft + Schema Registry) para demos offline sem gastar créditos |
+| **Linguagem** | Python 3.11+ (geradores/producers), SQL (Flink) |
 | **Idioma** | Prosa em pt-BR · Código em inglês (identificadores, logs, tabelas) |
 | **Licença** | MIT |
 
-### Fluxo de dados
+### Fluxo de dados (Desafio Final — build-as-you-go)
 
 ```
-Oracle XE  ──CDC──►  Kafka Connect  ──►  Kafka + SR  ──►  Flink SQL  ──►  Iceberg (MinIO/Nessie)
-(Pagamentos)         (Debezium)         (local)         (enrichment)     │
-                                                                          └──► Trino (analytics)
+Banco fonte ──CDC──►  Managed Connect  ──►  Kafka + SR   ──►  Flink SQL    ──►  Tableflow/Iceberg
+(pagamentos)          (Debezium)            (Confluent        (enrichment +      │
+                                             Cloud)            fraude + IA)      └──► Catálogo (Glue/Snowflake/Unity)
+                                                │
+                                                └──► Observabilidade (Metrics API, lag, custos)
 ```
+
+Cada camada corresponde a um curso do bootcamp: ingestão (Curso 2), CDC (Curso 3), transformação (Curso 4), lakehouse (Curso 5), IA (Curso 6), observabilidade (Curso 7).
 
 ---
 
@@ -34,25 +41,25 @@ Oracle XE  ──CDC──►  Kafka Connect  ──►  Kafka + SR  ──►  
 ```
 .claude/
 ├── README.md                    # Este arquivo
-├── rules.md                     # Padrões cross-workshop (Kafka, dados, CHANGELOG)
+├── rules.md                     # Padrões cross-lab (Kafka, dados, CHANGELOG)
 ├── settings.json                # Hooks (lint, format, SQL, Avro PII)
 ├── settings.local.json          # Permissões locais (não commitada com segredos)
-├── versions.lock                # Versões fixadas (Python, ferramentas)
+├── versions.lock                # Versões fixadas (Python, CLI, ferramentas)
 │
 ├── hooks/                       # Scripts de lifecycle
 │   ├── lint-python.sh          # ruff check + format em *.py
 │   ├── format-check.sh         # black --line-length 100 em *.py
 │   ├── validate-sql.sh         # avisa keywords minúsculas em *.sql
-│   ├── terraform-fmt.sh        # terraform fmt + validate (caso opte por IaC futuramente)
+│   ├── terraform-fmt.sh        # terraform fmt + validate (provider confluent p/ IaC opcional)
 │   ├── validate-avro-pii.sh    # bloqueia *.avsc com campos sensíveis sem confluent:tags
 │   └── pre-commit-changelog.sh # bloqueia commit sem entrada no CHANGELOG
 │
 ├── rules/                       # Regras escopadas por path
 │   ├── python.md               # **/*.py — Decimal BRL, Enums, logging, LGPD
-│   ├── sql.md                  # **/*.sql — Flink SQL, Oracle CDC, Trino
+│   ├── sql.md                  # **/*.sql — Flink SQL no Confluent Cloud
 │   ├── testing.md              # **/tests/** — pytest, Hypothesis, testcontainers
-│   ├── schemas.md              # **/*.avsc — namespace, tags PII/PCI, Debezium envelope
-│   └── workshop.md             # **/ws-*/** — cenas, time-boxing, verifiabilidade
+│   ├── schemas.md              # **/*.avsc — namespace, tags PII/PCI, envelope Debezium
+│   └── labs.md                 # **/labs/**, **/desafio-final/** — time-boxing, verificabilidade, teardown
 │
 ├── workflows/                   # RESEARCH → PLAN → ACT → VALIDATE
 │   ├── README.md
@@ -64,44 +71,45 @@ Oracle XE  ──CDC──►  Kafka Connect  ──►  Kafka + SR  ──►  
 │
 ├── agents/                      # Agents especialistas
 │   ├── README.md
-│   ├── confluent-platform-expert.md     # Confluent Platform Docker
-│   ├── oracle-database-expert.md        # Oracle XE config & supplemental logging
-│   ├── oracle-cdc-expert.md             # Debezium Oracle, LogMiner
-│   ├── kafka-streaming-expert.md        # Producer/consumer patterns
-│   ├── kafka-security-expert.md         # ACLs, SASL, segurança local
-│   ├── flink-self-managed-expert.md     # Flink 1.19 Docker, SQL Client, checkpointing
-│   ├── iceberg-expert.md                # Iceberg, Nessie, particionamento
-│   ├── trino-expert.md                  # Trino + Iceberg connector
+│   ├── confluent-cloud-expert.md        # CLI, environments, clusters, service accounts, Cluster Linking
+│   ├── connect-cdc-expert.md            # Conectores gerenciados, Debezium, SMT, DLQ
+│   ├── kafka-streaming-expert.md        # Producer/consumer patterns, semânticas de entrega
+│   ├── kafka-security-expert.md         # RBAC, ACLs, API keys, mascaramento PII/LGPD
+│   ├── flink-confluent-expert.md        # Flink SQL gerenciado, janelas, joins, MATCH_RECOGNIZE
+│   ├── tableflow-lakehouse-expert.md    # Tableflow, Iceberg, catálogos, consumo analítico
+│   ├── realtime-ai-expert.md            # CREATE MODEL, ML_PREDICT, Vector Search, streaming agents
+│   ├── observability-cost-expert.md     # Metrics API, lag, alertas, custos, DR
 │   ├── data-modeler.md                  # Modelagem de entidades, evolução de schema
 │   ├── data-quality-expert.md           # Validação e qualidade de dados sintéticos
-│   ├── scenario-architect.md            # Orquestração de cenas
+│   ├── lab-architect.md                 # Estrutura de labs por módulo, camadas do desafio
 │   ├── software-engineer.md             # Padrões Python e arquitetura
 │   └── logging-expert.md                # Logging estruturado
 │
 ├── skills/                      # Capacidades executáveis
 │   ├── README.md
 │   ├── common/                  # code-reviewer, doc-generator, validation
-│   ├── confluent/               # docker-compose, schema-registry, topics, connect, troubleshoot
+│   ├── confluent/               # cloud-setup, topics, schema-registry, managed-connector, tableflow, troubleshoot, local-dev-fallback
 │   ├── generators/              # schema-designer, generator-builder, kafka-producer, ...
 │   └── workflow/                # topic-designer, connector-configurator, flink-job-builder, ...
 │
 ├── references/                  # Documentação técnica
 │   ├── README.md
-│   ├── oracle-cdc-patterns.md
+│   ├── bootcamp-stack-guide.md
+│   ├── cdc-connect-patterns.md
 │   ├── kafka-producer-guide.md
 │   ├── data-modeling.md
 │   ├── faker-patterns.md
 │   ├── brazilian-data-formats.md
 │   ├── behavioral-patterns-guide.md
-│   ├── poison-pill-patterns.md
-│   └── workshop-stack-guide.md
+│   └── poison-pill-patterns.md
 │
 └── instructions/                # Playbooks passo a passo
     ├── README.md
+    ├── cloud-setup_v1.md
     ├── new-generator_v1.md
-    ├── kafka-setup_v1.md
+    ├── new-lab_v1.md
     ├── domain-extension_v1.md
-    └── new-scenario_v1.md
+    └── desafio-final_v1.md
 ```
 
 ---
@@ -113,7 +121,7 @@ Oracle XE  ──CDC──►  Kafka Connect  ──►  Kafka + SR  ──►  
 | PostToolUse | `Edit\|Write(*.py)` | [lint-python.sh](hooks/lint-python.sh) → `ruff check --fix` + `ruff format` |
 | PostToolUse | `Edit\|Write(*.py)` | [format-check.sh](hooks/format-check.sh) → `black --line-length 100` |
 | PostToolUse | `Edit\|Write(*.sql)` | [validate-sql.sh](hooks/validate-sql.sh) → avisa keywords minúsculas |
-| PostToolUse | `Edit\|Write(*.tf\|*.tfvars)` | [terraform-fmt.sh](hooks/terraform-fmt.sh) → `terraform fmt` + `validate` (opcional) |
+| PostToolUse | `Edit\|Write(*.tf\|*.tfvars)` | [terraform-fmt.sh](hooks/terraform-fmt.sh) → `terraform fmt` + `validate` (provider confluent, opcional) |
 | PostToolUse | `Edit\|Write(*.avsc\|*.avro)` | [validate-avro-pii.sh](hooks/validate-avro-pii.sh) → **bloqueia** Avro com campos sensíveis sem `confluent:tags` |
 | PreToolUse | `Bash(git commit*)` | [pre-commit-changelog.sh](hooks/pre-commit-changelog.sh) → **bloqueia** commit sem entrada no CHANGELOG |
 
@@ -128,33 +136,34 @@ Carregadas automaticamente por glob:
 | Arquivo | Glob | Escopo |
 |---------|------|--------|
 | [python.md](rules/python.md) | `**/*.py` | Black/Ruff/mypy, `Decimal` para BRL, Enums, logging lazy, LGPD |
-| [sql.md](rules/sql.md) | `**/*.sql` | Flink SQL (watermark/TTL/MATCH_RECOGNIZE), Oracle CDC, Trino |
-| [testing.md](rules/testing.md) | `**/tests/**/*.py` | pytest, Hypothesis, testcontainers para Kafka/Oracle |
-| [schemas.md](rules/schemas.md) | `**/*.avsc,**/schemas/**` | Namespace `com.workshop.payments`, tags PII/PCI, envelope Debezium |
-| [workshop.md](rules/workshop.md) | `**/ws-*/**,**/workshop*/**,**/samples/**` | Cenas time-boxed, comandos verificáveis, cleanup, anti-patterns pedagógicos |
-
-A regra de Terraform foi removida — o workshop é 100% Docker Compose. Se um cenário futuro precisar de IaC, restaurar `rules/terraform.md` do histórico do git.
+| [sql.md](rules/sql.md) | `**/*.sql` | Flink SQL no Confluent Cloud (watermark, janelas, MATCH_RECOGNIZE, ML_PREDICT) |
+| [testing.md](rules/testing.md) | `**/tests/**/*.py` | pytest, Hypothesis, testcontainers para Kafka local |
+| [schemas.md](rules/schemas.md) | `**/*.avsc,**/schemas/**` | Namespace `com.bootcamp.payments`, tags PII/PCI, envelope Debezium |
+| [labs.md](rules/labs.md) | `**/labs/**,**/desafio-final/**` | Labs time-boxed, comandos verificáveis, teardown de recursos cloud |
 
 ---
 
-## Quick start (para o autor do workshop)
+## Quick start (para o autor do bootcamp)
 
-A edição em construção é [`data-streaming-tour-2026/`](../data-streaming-tour-2026/). Cenas vivem dentro dela.
+O código entregável vive em [`repo/`](../repo/): `shared/` (geradores, schemas), `labs/modulo-0X-*/` (um por curso) e `desafio-final/`.
 
 ```
-"Usando confluent-platform-expert, monte o docker-compose da cena de Kafka fundamentals (Kafka + Schema Registry + Control Center) em data-streaming-tour-2026/"
+"Usando confluent-cloud-expert, crie o script de setup da Aula 0: environment, cluster básico, API keys e teardown"
 ```
 ```
-"Usando oracle-cdc-expert, gere supplemental logging para a tabela TRANSACOES no Oracle XE da cena de CDC"
+"Usando connect-cdc-expert, configure o source connector Debezium gerenciado para a tabela transactions no lab do módulo 3"
 ```
 ```
-"Usando flink-self-managed-expert, escreva uma cena com MATCH_RECOGNIZE para detectar 3 transações em <60s"
+"Usando flink-confluent-expert, escreva o statement com MATCH_RECOGNIZE para detectar 3 transações em <60s no módulo 4"
 ```
 ```
-"Usando iceberg-expert + trino-expert, monte a cena de lakehouse com sink Flink → Iceberg e queries Trino"
+"Usando tableflow-lakehouse-expert, materialize o topic de transações enriquecidas como tabela Iceberg via Tableflow"
+```
+```
+"Usando realtime-ai-expert, adicione ML_PREDICT de classificação de fraude ao pipeline do desafio final"
 ```
 
 ---
 
-**Última atualização**: 2026-05-11
+**Última atualização**: 2026-07-11
 **Mantido por**: Mateus Oliveira / Intelium Consulting

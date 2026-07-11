@@ -78,11 +78,11 @@ class BaseGenerator(ABC):
     @abstractmethod
     def generate(self): pass
 
-class GuiaGenerator(BaseGenerator):
+class TransactionGenerator(BaseGenerator):
     def generate(self): ...
 
 # GOOD: Just the class you need
-class GuiaGenerator:
+class TransactionGenerator:
     def generate(self): ...
 ```
 
@@ -145,11 +145,11 @@ class DataProcessor:
 class IGenerator(Protocol):
     def generate(self, count: int) -> Iterator[dict]: ...
 
-class GuiaGenerator:  # implements IGenerator
+class TransactionGenerator:  # implements IGenerator
     def generate(self, count: int) -> Iterator[dict]: ...
 
 # GOOD: Skip the interface until you need polymorphism
-class GuiaGenerator:
+class TransactionGenerator:
     def generate(self, count: int) -> Iterator[dict]: ...
 ```
 
@@ -159,21 +159,21 @@ class GuiaGenerator:
 class GeneratorFactory:
     @staticmethod
     def create(type: str) -> Generator:
-        if type == "guia":
-            return GuiaGenerator()
-        elif type == "membro":
-            return MembroGenerator()
+        if type == "transaction":
+            return TransactionGenerator()
+        elif type == "account":
+            return AccountGenerator()
         raise ValueError(f"Unknown type: {type}")
 
 # GOOD: Dict lookup or direct instantiation
 GENERATORS = {
-    "guia": GuiaGenerator,
-    "membro": MembroGenerator,
+    "transaction": TransactionGenerator,
+    "account": AccountGenerator,
 }
 generator = GENERATORS[type]()
 
 # Or just:
-generator = GuiaGenerator()
+generator = TransactionGenerator()
 ```
 
 ---
@@ -182,7 +182,7 @@ generator = GuiaGenerator()
 
 ### Simple Generator
 ```python
-"""Guia TISS generator - simple and direct."""
+"""Payment transaction generator - simple and direct."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -193,31 +193,31 @@ from faker import Faker
 
 
 @dataclass
-class GuiaConfig:
+class TransactionConfig:
     """Minimal config - only what we actually use."""
 
     seed: int | None = None
 
 
-class GuiaGenerator:
-    """Generate synthetic guias TISS."""
+class TransactionGenerator:
+    """Generate synthetic payment transactions."""
 
-    def __init__(self, config: GuiaConfig | None = None) -> None:
-        self.config = config or GuiaConfig()
+    def __init__(self, config: TransactionConfig | None = None) -> None:
+        self.config = config or TransactionConfig()
         self.fake = Faker("pt_BR")
         if self.config.seed:
             Faker.seed(self.config.seed)
             random.seed(self.config.seed)
 
     def generate(self, count: int) -> Iterator[dict]:
-        """Generate guias. Simple loop, no magic."""
+        """Generate transactions. Simple loop, no magic."""
         for _ in range(count):
             yield {
-                "guia_id": self.fake.uuid4(),
-                "valor_autorizado": round(random.paretovariate(1.5) * 100, 2),
-                "data_solicitacao": datetime.now().isoformat(),
-                "membro_cpf": self.fake.cpf(),
-                "prestador_cnes": self.fake.bothify("?######"),
+                "transaction_id": self.fake.uuid4(),
+                "amount": round(random.paretovariate(1.5) * 100, 2),
+                "created_at": datetime.now().isoformat(),
+                "cpf": self.fake.cpf(),
+                "mcc": self.fake.numerify("####"),
             }
 ```
 
@@ -309,7 +309,7 @@ class DataProducer:
 ## Example Review
 
 ```markdown
-## Code Review: generators/saude/guias.py
+## Code Review: generators/payments/transactions.py
 
 ### Summary
 Good generator but has unnecessary abstraction and over-configuration.
@@ -319,7 +319,7 @@ Good generator but has unnecessary abstraction and over-configuration.
 #### [OVER-ENGINEERED] Unnecessary base class
 **Line:** 15
 **Problem:** `BaseGenerator` ABC has only one implementation
-**Fix:** Remove base class, use `GuiaGenerator` directly
+**Fix:** Remove base class, use `TransactionGenerator` directly
 
 #### [SIMPLIFY] Config has unused fields
 **Line:** 8-12
@@ -329,7 +329,7 @@ Good generator but has unnecessary abstraction and over-configuration.
 #### [OVER-ENGINEERED] Factory method not needed
 **Line:** 45
 **Problem:** `create_generator()` factory for single type
-**Fix:** Just instantiate `GuiaGenerator()` directly
+**Fix:** Just instantiate `TransactionGenerator()` directly
 
 ### What's Good
 - Clear method names

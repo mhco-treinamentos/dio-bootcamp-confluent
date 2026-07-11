@@ -5,18 +5,18 @@ globs: "**/*.avsc,**/*.avro,**/schemas/**"
 # Schema Rules (Avro / Schema Registry)
 
 ## Namespace
-Todos os schemas do workshop usam: `com.workshop.payments`
+Todos os schemas do bootcamp usam: `com.bootcamp.payments`
 Qualificadores de subdomínio quando aplicável:
-- `com.workshop.payments.contas`
-- `com.workshop.payments.cartoes`
-- `com.workshop.payments.transacoes`
-- `com.workshop.payments.fraude`
+- `com.bootcamp.payments.accounts`
+- `com.bootcamp.payments.cards`
+- `com.bootcamp.payments.transactions`
+- `com.bootcamp.payments.fraud`
 
 ```json
 {
   "type": "record",
-  "name": "Transacao",
-  "namespace": "com.workshop.payments.transacoes",
+  "name": "Transaction",
+  "namespace": "com.bootcamp.payments.transactions",
   "doc": "Transação financeira (débito ou crédito) emitida por um cartão"
 }
 ```
@@ -30,7 +30,7 @@ Qualificadores de subdomínio quando aplicável:
 Topics CDC carregam o envelope Debezium. Schemas downstream devem preservar:
 - `op` (enum: c, u, d, r) — create / update / delete / read (snapshot)
 - `ts_ms` (long) — timestamp da source
-- `source` (record) — `{db, schema, table, txId, scn, commit_scn}`
+- `source` (record) — `{db, schema, table, txId, lsn}` (fonte Postgres do lab de CDC)
 - `before` (nullable record) — estado anterior
 - `after` (nullable record) — estado novo
 
@@ -101,7 +101,7 @@ Matriz de tags:
 **Proibido em topic** (mesmo sintético): PAN completo, CVV, PIN, dados de track magnético, senha.
 
 ## Schema Evolution
-- Compatibilidade default: **BACKWARD**
+- Compatibilidade default: **BACKWARD** — conceito-âncora do bootcamp (Curso 2, Aula 3: versionar eventos sem quebrar consumers)
 - Adicionar novos fields: PRECISA ter default
 - Remover fields: só se já tinham default
 - **Nunca** renomear fields ou trocar tipos em produção — usar field aliases
@@ -111,9 +111,9 @@ Matriz de tags:
 {topic_name}-value
 
 Exemplos:
-dev.payments.oracle-pagamentos.transacoes.cdc.v1-value
-dev.payments.oracle-pagamentos.contas.cdc.v1-value
-dev.payments.flink.fraude.detected.v1-value
+dev.payments.pg-payments.transactions.cdc.v1-value
+dev.payments.pg-payments.accounts.cdc.v1-value
+dev.payments.flink.fraud.detected.v1-value
 ```
 
 ## Brazilian Payment-Specific Types

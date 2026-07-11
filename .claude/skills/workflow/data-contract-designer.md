@@ -2,7 +2,7 @@
 
 ## Skill: `/data-contract-designer`
 
-Create data contracts (YAML/Avro) defining schema, quality expectations, SLAs, and ownership for Kafka topics on the workshop's Confluent Cloud platform. Ensures producer-consumer alignment and governance.
+Cria data contracts (YAML/Avro) definindo schema, expectativas de qualidade, SLAs e ownership para topics do bootcamp no Confluent Cloud. Garante alinhamento producer–consumer e alimenta o Stream Governance (Curso 2 — Data Contracts; Live 3 — governança).
 
 ## Usage
 
@@ -11,314 +11,266 @@ Create data contracts (YAML/Avro) defining schema, quality expectations, SLAs, a
 ```
 
 ### Options
-- `--format` - Contract format: yaml, avro, json-schema (default: yaml)
-- `--domain` - Domain: saude, beneficiarios, autorizacoes, prestadores, faturamento
-- `--type` - Event type: cdc, enriched, aggregated, alert
+- `--format` — Formato: yaml, avro, json-schema (default: yaml)
+- `--type` — Tipo de evento: cdc, enriched, aggregated, detected, created
 
 ---
 
-## Data Contract Structure
+## Estrutura do contrato
 
-### Full Contract Template (YAML)
+### Template completo (YAML) — transactions CDC
 
 ```yaml
 apiVersion: v1
 kind: DataContract
 metadata:
-  name: autorizacoes-guias-cdc
+  name: payments-transactions-cdc
   version: "1.0.0"
   owner:
-    team: data-platform
-    contact: data-platform@example.com
-  domain: autorizacoes
+    team: bootcamp-payments
+    contact: mateus@example.com
+  domain: payments
   tags:
     - cdc
-    - saude
+    - payments
     - lgpd
-    - ans
+    - pci
 
 topic:
-  name: prod.saude.oracle-autorizacoes.guias.cdc.v1
-  partitions: 24
-  replication_factor: 3
-  retention_ms: 2592000000  # 30 days
+  name: dev.payments.pg-payments.transactions.cdc.v1
+  partitions: 6
+  replication_factor: 3          # default Confluent Cloud
+  retention_ms: 604800000        # 7 dias
   cleanup_policy: delete
   compression: lz4
 
 schema:
   format: avro
-  compatibility: BACKWARD
-  registry_subject: prod.saude.oracle-autorizacoes.guias.cdc.v1-value
+  compatibility: BACKWARD        # default do bootcamp — nunca NONE
+  registry_subject: dev.payments.pg-payments.transactions.cdc.v1-value
+  namespace: com.bootcamp.payments
   fields:
-    - name: guia_id
+    - name: transaction_id
       type: string
-      description: "Unique guia TISS identifier"
+      description: "Unique transaction identifier"
       pii: false
       required: true
       primary_key: true
 
-    - name: membro_id
+    - name: account_id
       type: string
-      description: "Membro identifier (FK to membros)"
+      description: "Account identifier (FK to accounts)"
       pii: false
       required: true
-      foreign_key: prod.saude.oracle-beneficiarios.membros.cdc.v1
+      foreign_key: dev.payments.pg-payments.accounts.cdc.v1
 
-    - name: prestador_id
+    - name: card_id
       type: string
-      description: "Prestador identifier (FK to prestadores)"
+      description: "Card identifier (FK to cards)"
       pii: false
-      required: true
-      foreign_key: prod.saude.oracle-prestadores.prestadores.cdc.v1
+      required: false
+      foreign_key: dev.payments.pg-payments.cards.cdc.v1
 
-    - name: valor_autorizado
+    - name: amount
       type: decimal
-      precision: 15
+      precision: 12
       scale: 2
-      description: "Authorized amount in BRL"
+      description: "Transaction amount in BRL"
       pii: false
       required: true
       constraints:
-        - "valor_autorizado > 0"
+        - "amount > 0"
 
-    - name: tipo_guia
-      type: enum
-      symbols: [CONSULTA, SP_SADT, INTERNACAO, ODONTOLOGICA, HONORARIOS]
-      description: "TISS guide type"
-      pii: false
-      required: true
-
-    - name: status
-      type: enum
-      symbols: [SOLICITADA, EM_ANALISE, AUTORIZADA, NEGADA, EXECUTADA, FATURADA, PAGA, GLOSADA]
-      description: "Guia lifecycle status"
-      pii: false
-      required: true
-
-    - name: cid_10
+    - name: mcc
       type: string
-      description: "ICD-10 diagnosis code"
-      phi: true
+      description: "Merchant category code (ISO 18245)"
+      pii: false
+      required: false
+
+    - name: uf
+      type: string
+      description: "Transaction state (UF)"
+      pii: false
+      required: true
+
+    - name: cpf
+      type: string
+      description: "Customer CPF (11 digits)"
+      pii: true
+      required: true
+      tags:
+        - confluent:PII
+        - confluent:LGPD
+
+    - name: card_pan_masked
+      type: string
+      description: "Masked PAN (BIN + last4) — NEVER cleartext"
+      pii: true
       required: false
       tags:
-        - confluent:PHI
-        - confluent:SAUDE
-        - confluent:ANS
+        - confluent:PCI
 
-    - name: data_solicitacao
+    - name: created_at
       type: timestamp-millis
-      description: "Guia request timestamp"
+      description: "Transaction creation timestamp"
       pii: false
       required: true
 
 quality:
   expectations:
     completeness:
-      - field: guia_id
+      - field: transaction_id
         threshold: 100%
-      - field: valor_autorizado
+      - field: amount
         threshold: 100%
-      - field: membro_id
+      - field: account_id
         threshold: 100%
 
     validity:
-      - rule: "valor_autorizado > 0"
+      - rule: "amount > 0"
         threshold: 99.9%
-      - rule: "tipo_guia IN ('CONSULTA','SP_SADT','INTERNACAO','ODONTOLOGICA','HONORARIOS')"
+      - rule: "LENGTH(cpf) = 11"
         threshold: 100%
-      - rule: "status IN ('SOLICITADA','EM_ANALISE','AUTORIZADA','NEGADA','EXECUTADA','FATURADA','PAGA','GLOSADA')"
+      - rule: "card_pan_masked NOT LIKE '%[0-9]{16}%'"   # nunca PAN em claro
         threshold: 100%
 
     timeliness:
       max_latency_seconds: 60
-      description: "CDC events must arrive within 60s of Oracle commit"
+      description: "CDC events must arrive within 60s of Postgres commit"
 
     uniqueness:
-      - field: guia_id
+      - field: transaction_id
         scope: topic
         threshold: 99.99%
 
 sla:
   availability: 99.9%
   throughput:
-    average_msgs_per_sec: 200
-    peak_msgs_per_sec: 2000
+    average_msgs_per_sec: 50     # escala de lab
+    peak_msgs_per_sec: 500
   latency:
-    p50_ms: 100
     p95_ms: 500
     p99_ms: 2000
 
 consumers:
   - name: flink-enrichment
-    service_account: sa-workshop-flink-prod
+    service_account: sa-lab-modulo-04
     access: read
-    purpose: "Enrich guias with membro/prestador data"
+    purpose: "Enrich transactions with account/card data"
 
-  - name: snowflake-ingest
-    service_account: sa-workshop-snowflake-ingest
+  - name: fraud-detection
+    service_account: sa-lab-modulo-04
     access: read
-    purpose: "Ingest to Snowflake semantic layer via Snowpipe Streaming"
+    purpose: "MATCH_RECOGNIZE fraud rules"
 
-  - name: glosa-detection
-    service_account: sa-workshop-consumer-glosa
+  - name: tableflow
+    service_account: sa-lab-modulo-05
     access: read
-    purpose: "Real-time glosa pattern detection"
+    purpose: "Materialize enriched output as Iceberg (downstream)"
 
 lineage:
   source:
-    system: Oracle Autorizações
-    database: PAYMENTS_DB
-    schema: AUTORIZACOES
-    table: GUIAS
-    connector: oracle-cdc-autorizacoes
+    system: Postgres 16 (lab source DB)
+    database: payments
+    schema: public
+    table: transactions
+    connector: pg-payments-cdc-source
 
   downstream:
-    - topic: prod.saude.flink.guias.enriched.v1
-      job: flink-guia-enrichment
-    - topic: prod.saude.flink.glosa_alerts.detected.v1
-      job: flink-glosa-detection
-    - database: snowflake://PAYMENTS_RAW.SAUDE.GUIAS
-      connector: snowpipe-streaming
+    - topic: dev.payments.flink.transactions.enriched.v1
+      job: tx-enrichment
+    - topic: dev.payments.flink.fraud.detected.v1
+      job: fraud-velocity
+    - table: iceberg://dev.payments.flink.transactions.enriched.v1
+      via: tableflow
 ```
 
 ---
 
-## Avro Schema with PII/PHI Tags
+## Avro com tags PII/PCI
 
 ```json
 {
   "type": "record",
-  "name": "Guia",
-  "namespace": "com.workshop.payments.autorizacoes",
-  "doc": "Guia TISS CDC event",
+  "name": "TransactionCdc",
+  "namespace": "com.bootcamp.payments",
+  "doc": "Transaction CDC event (Debezium Postgres, unwrapped)",
   "fields": [
+    {"name": "transaction_id", "type": "string"},
+    {"name": "account_id", "type": "string"},
+    {"name": "card_id", "type": ["null", "string"], "default": null},
     {
-      "name": "guia_id",
-      "type": "string",
-      "doc": "Unique guia identifier"
+      "name": "amount",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2},
+      "doc": "Amount in BRL"
     },
-    {
-      "name": "membro_id",
-      "type": "string",
-      "doc": "Membro identifier"
-    },
-    {
-      "name": "prestador_id",
-      "type": "string",
-      "doc": "Prestador identifier"
-    },
-    {
-      "name": "valor_autorizado",
-      "type": {
-        "type": "bytes",
-        "logicalType": "decimal",
-        "precision": 15,
-        "scale": 2
-      },
-      "doc": "Authorized amount in BRL"
-    },
-    {
-      "name": "tipo_guia",
-      "type": {
-        "type": "enum",
-        "name": "TipoGuia",
-        "symbols": ["CONSULTA", "SP_SADT", "INTERNACAO", "ODONTOLOGICA", "HONORARIOS"]
-      }
-    },
-    {
-      "name": "status",
-      "type": {
-        "type": "enum",
-        "name": "StatusGuia",
-        "symbols": ["SOLICITADA", "EM_ANALISE", "AUTORIZADA", "NEGADA", "EXECUTADA", "FATURADA", "PAGA", "GLOSADA"]
-      }
-    },
-    {
-      "name": "cid_10",
-      "type": ["null", "string"],
-      "default": null,
-      "doc": "ICD-10 diagnosis code",
-      "confluent:tags": ["PHI", "SAUDE", "ANS"]
-    },
-    {
-      "name": "data_solicitacao",
-      "type": { "type": "long", "logicalType": "timestamp-millis" }
-    }
+    {"name": "mcc", "type": ["null", "string"], "default": null},
+    {"name": "uf", "type": "string"},
+    {"name": "cpf", "type": "string", "confluent:tags": ["PII", "LGPD"]},
+    {"name": "card_pan_masked", "type": ["null", "string"], "default": null, "confluent:tags": ["PCI"]},
+    {"name": "created_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
   ]
 }
 ```
 
----
-
-## Contract Templates by Domain
-
-### CDC Entity Contract
-
-For raw CDC events from Oracle:
-- Schema: matches Oracle table structure
-- Quality: 100% completeness on PKs, referential integrity on FKs
-- SLA: <60s latency from Oracle commit
-
-### Enriched Event Contract
-
-For Flink-processed enriched streams:
-- Schema: denormalized with joined fields
-- Quality: inherits source quality + join completeness
-- SLA: <5s additional latency on top of CDC
-
-### Aggregated Metric Contract
-
-For windowed aggregation outputs:
-- Schema: aggregation keys + metric columns + window timestamps
-- Quality: window completeness, no late-event gaps
-- SLA: depends on window size (5min window → results within 6min)
-
-### Alert Contract
-
-For glosa/anomaly alerts:
-- Schema: alert type, severity, entity reference, evidence fields
-- Quality: zero false-negative tolerance on critical alerts
-- SLA: <30s detection-to-alert latency
+> O hook `validate-avro-pii.sh` **bloqueia** `.avsc` com campos sensíveis sem `confluent:tags` — ver [rules/schemas.md](../../rules/schemas.md).
 
 ---
 
-## Governance Integration
+## Templates por tipo de evento
 
-### Schema Registry Tags
+### CDC
+- Schema: espelha a tabela Postgres (+ metadados Debezium se `after.state.only=false`)
+- Qualidade: 100% completude nas PKs, integridade referencial nas FKs
+- SLA: <60s do commit no Postgres
+
+### Enriched (saída Flink)
+- Schema: desnormalizado com campos do join
+- Qualidade: herda a fonte + completude do join
+- SLA: <5s adicionais sobre o CDC
+
+### Aggregated
+- Schema: chaves de agregação + métricas + timestamps de janela
+- Qualidade: completude da janela, sem gaps de eventos atrasados
+- SLA: janela de 5min → resultado em até 6min
+
+### Detected (alertas de fraude)
+- Schema: regra disparada (`fraud_rule`), referência da entidade, evidências
+- Qualidade: tolerância zero a falso-negativo em regras críticas
+- SLA: <30s da detecção ao alerta
+
+---
+
+## Integração com Stream Governance (Live 3)
 
 ```bash
-# Tag PHI fields in Schema Registry
+# Tags PII no Schema Registry (inventário LGPD automático)
 confluent schema-registry subject update \
-  "prod.saude.oracle-autorizacoes.guias.cdc.v1-value" \
-  --tag "PHI" --field "cid_10"
+  "dev.payments.pg-payments.transactions.cdc.v1-value" \
+  --compatibility backward
 
-confluent schema-registry subject update \
-  "prod.saude.oracle-autorizacoes.guias.cdc.v1-value" \
-  --tag "ANS" --field "cid_10"
+# Tags de negócio/PII e lineage são visíveis na UI:
+# Environment → Stream Governance → Stream Catalog / Stream Lineage
 ```
 
-### Stream Governance Catalog
-
-Data contracts integrate with Confluent Stream Governance for:
-- Automatic lineage tracking
-- Schema discovery and documentation
-- PII/PHI field inventory across all topics
-- Data quality monitoring dashboards
+Data contracts alimentam o Stream Governance com:
+- Lineage automático (connector → topic → Flink → Tableflow)
+- Descoberta de schema e documentação
+- Inventário de campos PII/PCI em todos os topics
+- Base para anonimização on-the-fly no Flink (Live 3)
 
 ---
 
-## Best Practices
+## Best practices
 
-1. **Create contracts before topics** — design-first approach
-2. **Version contracts** alongside schema versions
-3. **Tag all PII/PHI fields** with `confluent:tags` in Avro schemas
-4. **Define SLAs** for every production topic
-5. **List all consumers** with their purpose and access level
-6. **Track lineage** from source to all downstream destinations
-7. **Review contracts quarterly** for accuracy and relevance
-8. **Store contracts in Git** alongside Terraform topic definitions
+1. **Contrato antes do topic** — design-first
+2. **Versionar contratos** junto com as versões de schema (Git, no lab correspondente)
+3. **Tags `confluent:tags` em todo campo PII/PCI** — o hook bloqueia sem elas
+4. **Compatibilidade BACKWARD sempre** — evolução sem quebrar consumers (Curso 2, Aula 3)
+5. **Listar todos os consumers** com service account e propósito
+6. **Lineage da fonte ao lakehouse** (Postgres → Kafka → Flink → Iceberg)
+7. **PAN mascarado por contrato** — nunca PAN em claro em nenhum topic
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-02-12
+**Última atualização**: 2026-07-11

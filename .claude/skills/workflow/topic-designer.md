@@ -2,7 +2,7 @@
 
 ## Skill: `/topic-designer`
 
-Design Kafka topics with proper naming conventions, partitioning strategies, retention policies, and configurations following the workshop's Confluent Cloud standards.
+Design de topics Kafka com naming, particionamento, retenção e configuração seguindo os padrões do bootcamp no **Confluent Cloud** ([rules.md](../../rules.md)).
 
 ## Usage
 
@@ -11,190 +11,148 @@ Design Kafka topics with proper naming conventions, partitioning strategies, ret
 ```
 
 ### Options
-- `--event-type` - Event type: cdc, enriched, aggregated, alert, command (default: cdc)
-- `--env` - Environment: dev, staging, prod (default: prod)
-- `--source-system` - Source system: oracle-beneficiarios, oracle-autorizacoes, oracle-prestadores, oracle-faturamento, flink
-- `--throughput` - Expected messages/sec: low (<100), medium (100-1000), high (>1000)
-- `--retention` - Retention: 7d, 30d, 90d, 365d, infinite (default: 30d)
+- `--event-type` — Tipo: cdc, enriched, aggregated, detected, created, snapshot (default: created)
+- `--stage` — `dev` | `lab` (**não há prod no bootcamp**; default: dev)
+- `--source-system` — `pg-payments` (CDC), `flink` (derivados), `gen` (sintéticos)
+- `--throughput` — Mensagens/s esperadas: low (<100), medium (100-1000), high (>1000)
+- `--retention` — 1d, 7d, 30d (default: 7d — labs curtos gastam menos créditos)
 
 ---
 
-## Naming Convention
+## Naming Convention (rules.md)
 
 ```
-{env}.{domain}.{source_system}.{entity}.{event_type}.v{version}
+{stage}.{domain}.{source_system}.{entity}.{event_type}.v{version}
 ```
 
-### Examples
+### Exemplos
 
-| Use Case | Topic Name |
-|----------|------------|
-| Beneficiarios CDC | `prod.saude.oracle-beneficiarios.membros.cdc.v1` |
-| Autorizacoes CDC | `prod.saude.oracle-autorizacoes.guias.cdc.v1` |
-| Prestadores CDC | `prod.saude.oracle-prestadores.prestadores.cdc.v1` |
-| Faturamento CDC | `prod.saude.oracle-faturamento.faturas.cdc.v1` |
-| Flink Enrichment | `prod.saude.flink.guias.enriched.v1` |
-| Flink Aggregation | `prod.saude.flink.hourly_guia_volumes.aggregated.v1` |
-| Glosa Alert | `prod.saude.flink.glosa_alerts.detected.v1` |
-| DLQ | `prod.saude.oracle-beneficiarios.dlq.v1` |
-| Schema History | `_schemas.oracle-beneficiarios.history` |
+| Caso de uso | Topic |
+|-------------|-------|
+| CDC accounts | `dev.payments.pg-payments.accounts.cdc.v1` |
+| CDC cards | `dev.payments.pg-payments.cards.cdc.v1` |
+| CDC transactions | `dev.payments.pg-payments.transactions.cdc.v1` |
+| Flink enrichment | `dev.payments.flink.transactions.enriched.v1` |
+| Flink fraud | `dev.payments.flink.fraud.detected.v1` |
+| Flink aggregation | `dev.payments.flink.balance.aggregated.v1` |
+| Gerador sintético | `dev.payments.gen.transactions.created.v1` |
+| Snapshot de lab | `lab.payments.gen.accounts.snapshot.v1` |
+| DLQ | `dev.payments.pg-payments.dlq.v1` |
 
 ---
 
-## Partitioning Strategy
+## Particionamento
 
-### Partition Count Guidelines
+### Contagem de partições (labs)
 
-| Throughput | Partition Count | Notes |
-|-----------|----------------|-------|
-| Low (<100 msg/s) | 6 | Minimum for HA |
-| Medium (100-1K msg/s) | 12 | Good balance |
-| High (1K-10K msg/s) | 24 | Higher parallelism |
-| Very High (>10K msg/s) | 48+ | Scale with consumers |
+| Throughput | Partições | Notas |
+|-----------|-----------|-------|
+| Low (<100 msg/s) — maioria dos labs | 3 | Setup rápido, menos custo |
+| Medium (100–1K msg/s) | 6 | Default do desafio final |
+| High (>1K msg/s) — stress test | 12 | Só quando o lab exige |
 
-### Partition Key Selection
+> Dimensionamento de produção (CKUs, partições por cluster) é conteúdo do módulo 7 — nos labs, menos é mais.
 
-| Domain | Recommended Key | Reasoning |
-|--------|----------------|-----------|
-| Guias/Autorizacoes | `membro_id` | Co-locate membro guias |
-| Membros | `membro_id` | Natural entity key |
-| Planos | `membro_id` | Co-locate with membro |
-| Prestadores | `prestador_id` | Natural entity key |
-| Faturamento | `prestador_id` | Co-locate by prestador |
-| Glosa Alerts | `prestador_id` | Co-locate with faturamento |
+### Chave de partição
 
----
-
-## Retention Policies
-
-| Topic Type | Retention | Compaction | Reasoning |
-|------------|-----------|------------|-----------|
-| CDC events | 30 days | No | Replayable from source |
-| Enriched streams | 30 days | No | Derived, can be recomputed |
-| Aggregated metrics | 90 days | No | Historical analytics |
-| Glosa alerts | 365 days | No | ANS compliance requirement |
-| Membro state | Infinite | Yes (compact) | Latest state needed |
-| Prestador state | Infinite | Yes (compact) | Latest state needed |
-| DLQ | 90 days | No | Troubleshooting window |
-| Schema history | Infinite | No | Required by connectors |
+| Entidade | Chave | Razão |
+|----------|-------|-------|
+| transactions | `account_id` | Ordem por conta (idempotência/velocity por conta) |
+| cards | `account_id` | Co-particionar com transactions p/ join no Flink |
+| accounts | `account_id` | Chave natural |
+| fraud.detected | `card_id` | Alertas agrupados por cartão |
+| balance.aggregated | `account_id` | Estado por conta |
 
 ---
 
-## Topic Configuration Templates
+## Retenção
 
-### CDC Topic (Oracle Source)
+| Tipo de topic | Retenção | Compaction | Razão |
+|---------------|----------|------------|-------|
+| Eventos gerados (labs) | 1–7 dias | Não | Créditos; dado é regenerável (seed) |
+| CDC | 7 dias | Não (ou compact+delete) | Replayable da fonte |
+| Derivados Flink | 7 dias | Não | Recomputáveis |
+| Estado de entidade (snapshot) | — | compact | Último valor por chave |
+| DLQ | 7–30 dias | Não | Janela de troubleshooting |
 
-```bash
-confluent kafka topic create prod.saude.oracle-autorizacoes.guias.cdc.v1 \
-  --partitions 24 \
-  --config "cleanup.policy=delete" \
-  --config "retention.ms=2592000000" \
-  --config "min.insync.replicas=2" \
-  --config "compression.type=lz4" \
-  --config "max.message.bytes=1048576" \
-  --config "segment.ms=3600000" \
-  --cluster <cluster-id>
-```
+> Retenção também é **compliance** (Live 3): reter só o necessário é princípio LGPD.
 
-### Compacted Topic (Entity State)
+---
 
-```bash
-confluent kafka topic create prod.saude.oracle-beneficiarios.membros.state.v1 \
-  --partitions 12 \
-  --config "cleanup.policy=compact" \
-  --config "min.compaction.lag.ms=3600000" \
-  --config "delete.retention.ms=86400000" \
-  --config "min.insync.replicas=2" \
-  --config "compression.type=lz4" \
-  --cluster <cluster-id>
-```
+## Templates de criação (CLI)
 
-### Enriched Stream Topic (Flink Output)
+### Topic CDC
 
 ```bash
-confluent kafka topic create prod.saude.flink.guias.enriched.v1 \
-  --partitions 24 \
-  --config "cleanup.policy=delete" \
-  --config "retention.ms=2592000000" \
-  --config "min.insync.replicas=2" \
-  --config "compression.type=lz4" \
-  --cluster <cluster-id>
-```
-
-### DLQ Topic
-
-```bash
-confluent kafka topic create prod.saude.oracle-autorizacoes.dlq.v1 \
+confluent kafka topic create dev.payments.pg-payments.transactions.cdc.v1 \
   --partitions 6 \
-  --config "cleanup.policy=delete" \
-  --config "retention.ms=7776000000" \
-  --config "min.insync.replicas=2" \
-  --cluster <cluster-id>
+  --config cleanup.policy=delete \
+  --config retention.ms=604800000 \
+  --config compression.type=lz4
 ```
+
+### Topic compactado (estado)
+
+```bash
+confluent kafka topic create lab.payments.gen.accounts.snapshot.v1 \
+  --partitions 3 \
+  --config cleanup.policy=compact \
+  --config min.compaction.lag.ms=3600000 \
+  --config delete.retention.ms=86400000
+```
+
+### Saída do Flink
+
+```bash
+confluent kafka topic create dev.payments.flink.transactions.enriched.v1 \
+  --partitions 6 \
+  --config cleanup.policy=delete \
+  --config retention.ms=604800000
+```
+
+### DLQ
+
+```bash
+confluent kafka topic create dev.payments.pg-payments.dlq.v1 \
+  --partitions 3 \
+  --config cleanup.policy=delete \
+  --config retention.ms=2592000000
+```
+
+> **RF=3** e **min.insync.replicas=2** são defaults do Confluent Cloud — citar como conceitos-âncora, sem precisar configurar.
 
 ---
 
-## Terraform Topic Resources
-
-### Single Topic
-
-```hcl
-resource "confluent_kafka_topic" "guias_cdc" {
-  kafka_cluster {
-    id = confluent_kafka_cluster.prod.id
-  }
-  topic_name       = "prod.saude.oracle-autorizacoes.guias.cdc.v1"
-  partitions_count = 24
-  rest_endpoint    = confluent_kafka_cluster.prod.rest_endpoint
-
-  config = {
-    "cleanup.policy"      = "delete"
-    "retention.ms"        = "2592000000"
-    "min.insync.replicas" = "2"
-    "compression.type"    = "lz4"
-    "max.message.bytes"   = "1048576"
-  }
-
-  credentials {
-    key    = confluent_api_key.admin.id
-    secret = confluent_api_key.admin.secret
-  }
-}
-```
-
-### Multiple Topics with for_each
+## Terraform (IaC opcional dos labs)
 
 ```hcl
 locals {
-  beneficiarios_topics = {
-    "membros"      = { partitions = 12, retention_ms = "-1", cleanup = "compact" }
-    "dependentes"  = { partitions = 12, retention_ms = "-1", cleanup = "compact" }
-    "planos"       = { partitions = 12, retention_ms = "-1", cleanup = "compact" }
-    "coberturas"   = { partitions = 6, retention_ms = "-1", cleanup = "compact" }
-    "carencias"    = { partitions = 6, retention_ms = "2592000000", cleanup = "delete" }
+  cdc_topics = {
+    "accounts"     = { partitions = 6, retention_ms = "604800000" }
+    "cards"        = { partitions = 6, retention_ms = "604800000" }
+    "transactions" = { partitions = 6, retention_ms = "604800000" }
   }
 }
 
-resource "confluent_kafka_topic" "oracle_beneficiarios_cdc" {
-  for_each = local.beneficiarios_topics
+resource "confluent_kafka_topic" "pg_payments_cdc" {
+  for_each = local.cdc_topics
 
   kafka_cluster {
-    id = confluent_kafka_cluster.prod.id
+    id = confluent_kafka_cluster.bootcamp.id
   }
-  topic_name       = "prod.saude.oracle-beneficiarios.${each.key}.cdc.v1"
+  topic_name       = "dev.payments.pg-payments.${each.key}.cdc.v1"
   partitions_count = each.value.partitions
-  rest_endpoint    = confluent_kafka_cluster.prod.rest_endpoint
+  rest_endpoint    = confluent_kafka_cluster.bootcamp.rest_endpoint
 
   config = {
-    "cleanup.policy"      = each.value.cleanup
-    "retention.ms"        = each.value.retention_ms
-    "min.insync.replicas" = "2"
-    "compression.type"    = "lz4"
+    "cleanup.policy"   = "delete"
+    "retention.ms"     = each.value.retention_ms
+    "compression.type" = "lz4"
   }
 
   credentials {
-    key    = confluent_api_key.admin.id
-    secret = confluent_api_key.admin.secret
+    key    = confluent_api_key.topic_manager.id
+    secret = confluent_api_key.topic_manager.secret
   }
 }
 ```
@@ -204,54 +162,46 @@ resource "confluent_kafka_topic" "oracle_beneficiarios_cdc" {
 ## Design Checklist
 
 ```markdown
-For every new topic, verify:
+Para todo topic novo:
 
 Naming:
-- [ ] Follows {env}.{domain}.{source_system}.{entity}.{event_type}.v{version}
-- [ ] Uses lowercase with dots as separators
-- [ ] Entity name matches source table (snake_case)
-- [ ] Version included (start with v1)
+- [ ] Segue {stage}.{domain}.{source_system}.{entity}.{event_type}.v{version}
+- [ ] stage é dev ou lab (nunca prod)
+- [ ] Lowercase, pontos como separador, entity em snake_case
+- [ ] Versão incluída (começa em v1; v2 só em breaking change)
 
-Partitioning:
-- [ ] Partition count matches expected throughput
-- [ ] Partition key chosen for data locality
-- [ ] No hot partitions (uniform key distribution)
+Particionamento:
+- [ ] 3 (labs) ou 6 (desafio final) partições
+- [ ] Chave escolhida por localidade (account_id/card_id)
+- [ ] Topics que fazem join no Flink co-particionados (mesma chave + nº de partições)
 
-Configuration:
-- [ ] Retention matches data lifecycle policy
-- [ ] Compaction enabled only for entity state topics
-- [ ] Compression set (lz4 for most, snappy for dev)
-- [ ] min.insync.replicas = 2 for production
+Configuração:
+- [ ] Retenção mínima suficiente (créditos + LGPD)
+- [ ] Compaction só para estado de entidade
+- [ ] lz4 como compressão default
 
 Schema:
-- [ ] Avro schema registered in Schema Registry
-- [ ] BACKWARD compatibility set
-- [ ] PII fields tagged with confluent:tags ["PII", "LGPD"]
-- [ ] PHI fields tagged with confluent:tags ["PHI", "SAUDE", "ANS"]
-- [ ] Key schema defined (for compacted topics)
+- [ ] Avro registrado no SR (subject <topic>-value), namespace com.bootcamp.payments
+- [ ] Compatibilidade BACKWARD
+- [ ] Campos sensíveis com confluent:tags ["PII","LGPD"] / ["PCI"]
 
-Security:
-- [ ] ACLs configured for producer service account
-- [ ] ACLs configured for consumer service accounts
-- [ ] DLQ topic created alongside main topic
+Segurança:
+- [ ] ACLs por service account do lab (least privilege, por prefixo)
+- [ ] DLQ criada junto quando há conector
+- [ ] Topic entra no teardown.sh do lab
 ```
 
 ---
 
-## Best Practices
+## Best practices
 
-1. **Always start with v1** in topic names; create v2 only on breaking schema changes
-2. **Use 6 partitions minimum** even for low-throughput topics to allow future scaling
-3. **Set min.insync.replicas=2** on all production topics (Confluent Cloud Dedicated)
-4. **Use lz4 compression** for best throughput/compression tradeoff
-5. **Create DLQ topics** alongside every CDC and connector topic
-6. **Use compaction** only for entity-state topics where latest value per key matters
-7. **Match partition keys** between related topics to enable co-partitioned joins in Flink
-8. **Never increase partitions** on compacted topics — plan partition count upfront
-9. **Use Terraform** to manage all topic configurations as code
-10. **Document topic ownership** in data contracts
+1. **Sempre v1** no nome; v2 apenas em breaking change de schema
+2. **Co-particionar** topics que fazem join no Flink (mesma chave e nº de partições)
+3. **Nunca aumentar partições** de topic compactado ou com dependência de ordem
+4. **Criar DLQ junto** de todo topic alimentado por conector
+5. **Documentar dono e propósito** no data contract ([data-contract-designer.md](data-contract-designer.md))
+6. **Deletar topics de lab no teardown** — storage também consome créditos
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-02-12
+**Última atualização**: 2026-07-11

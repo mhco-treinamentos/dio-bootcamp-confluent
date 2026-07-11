@@ -213,7 +213,7 @@ Every `.excalidraw` file follows this JSON structure:
 
 | Component Type | Background | Stroke | Usage |
 |---------------|-----------|--------|-------|
-| **Source / Database** | `#a5d8ff` | `#1971c2` | Oracle, databases, data sources |
+| **Source / Database** | `#a5d8ff` | `#1971c2` | Postgres, databases, data sources |
 | **Streaming / Kafka** | `#99e9f2` | `#0c8599` | Kafka topics, Confluent Cloud |
 | **Processing** | `#d0bfff` | `#7048e8` | Flink SQL, transformations |
 | **Sink / Destination** | `#b2f2bb` | `#2f9e44` | Snowflake, S3, outputs |
@@ -294,9 +294,9 @@ Every `.excalidraw` file follows this JSON structure:
 ### ID Convention
 
 Use descriptive, unique IDs:
-- Shapes: `rect-<component-name>` (e.g., `rect-oracle`, `rect-kafka`, `rect-snowflake`)
-- Text: `text-<component-name>` (e.g., `text-oracle`, `text-kafka`)
-- Arrows: `arrow-<source>-to-<target>` (e.g., `arrow-oracle-to-kafka`)
+- Shapes: `rect-<component-name>` (e.g., `rect-postgres`, `rect-kafka`, `rect-iceberg`)
+- Text: `text-<component-name>` (e.g., `text-postgres`, `text-kafka`)
+- Arrows: `arrow-<source>-to-<target>` (e.g., `arrow-postgres-to-kafka`)
 - Groups: `group-<section>` (e.g., `group-onprem`, `group-cloud`)
 - Standalone text: `label-<description>` (e.g., `label-title`, `label-section-aws`)
 
@@ -315,7 +315,7 @@ Reference `.excalidraw` diagrams in markdown using relative paths:
 ```markdown
 ## Arquitetura de Ingestão
 
-![Arquitetura CDC Oracle → Confluent → Snowflake](./diagramas/arquitetura-ingestao-cdc.excalidraw.png)
+![Arquitetura CDC Postgres → Confluent Cloud → Iceberg](./diagramas/arquitetura-ingestao-cdc.excalidraw.png)
 
 > Diagrama editável: [arquitetura-ingestao-cdc.excalidraw](./diagramas/arquitetura-ingestao-cdc.excalidraw)
 ```
@@ -326,15 +326,15 @@ For VS Code with Excalidraw extension, `.excalidraw` files render inline. For Gi
 
 ## Example: CDC Pipeline Diagram
 
-A CDC pipeline diagram for Oracle → Confluent Cloud → Snowflake + S3 would include:
+A CDC pipeline diagram for Postgres → Confluent Cloud → Tableflow/Iceberg would include:
 
 | Layer | Components | Color |
 |-------|-----------|-------|
-| Sources (left) | Oracle DB boxes per database | Blue (`#a5d8ff`) |
+| Sources (left) | Postgres source DB box | Blue (`#a5d8ff`) |
 | Network | Direct Connect arrow | Gray, dashed |
 | Streaming (center) | Confluent Cloud group with Kafka Topics, Schema Registry | Cyan (`#99e9f2`) |
 | Processing | Flink SQL | Purple (`#d0bfff`) |
-| Sinks (right) | Snowflake, S3 Iceberg | Green (`#b2f2bb`) |
+| Sinks (right) | Tableflow → Iceberg (Glue/Snowflake Open Catalog/Unity) | Green (`#b2f2bb`) |
 | Governance | Schema Registry, Data Contracts | Purple (`#eebefa`) |
 | Error handling | DLQ topic | Red (`#ffc9c9`) |
 

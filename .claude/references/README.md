@@ -1,58 +1,54 @@
-# References — data-streaming-tour
+# References — Bootcamp Confluent Cloud 2026
 
-> **Documentação técnica de profundidade. Material complementar consultado pelos agents e pelo autor do workshop.**
+> **Documentação técnica de profundidade. Material complementar consultado pelos agents e pelo autor do bootcamp.**
 
 ## Disponíveis
 
-### Plataforma & Infraestrutura
+### Plataforma & Pipeline
 
 | Reference | Descrição |
 |-----------|-----------|
-| `oracle-cdc-patterns.md` | Oracle LogMiner, supplemental logging, Debezium em profundidade, mapeamento de tipos |
+| `bootcamp-stack-guide.md` | Componentes Confluent Cloud por módulo, pipeline de referência payments/fraude, fallback local e seus limites, disciplina de créditos/teardown |
+| `cdc-connect-patterns.md` | CDC com Debezium gerenciado (Postgres 16 como fonte): snapshot modes, envelope, deletes/tombstones, SMTs, DLQ, failure modes (slot growth, schema drift) |
 
 ### Kafka & Streaming
 
 | Reference | Descrição |
 |-----------|-----------|
-| `kafka-producer-guide.md` | Boas práticas de producer, rate limiting, callbacks de entrega |
-| `data-modeling.md` | Padrões de modelagem por domínio, relacionamentos, evolução de schema |
+| `kafka-producer-guide.md` | Producer para Confluent Cloud (perfil `cloud|local`, SASL_SSL via env vars), semânticas de entrega (RF=3, min.insync.replicas=2, acks=all), rate limiting, callbacks |
+| `data-modeling.md` | Padrões de modelagem por domínio, relacionamentos, envelope de eventos |
 
 ### Geração de dados sintéticos
 
 | Reference | Descrição |
 |-----------|-----------|
-| `faker-patterns.md` | Padrões da lib Faker, providers customizados |
-| `brazilian-data-formats.md` | CPF, CNPJ, CNS, telefones, CEP — formatos e validação |
-| `behavioral-patterns-guide.md` | Fluxos comportamentais (ciclos, sazonalidade, distribuições) |
-| `poison-pill-patterns.md` | 12 tipos de problemas de qualidade e estratégias de injeção |
-
-### Workshop / Stack lakehouse OSS
-
-| Reference | Descrição |
-|-----------|-----------|
-| `workshop-stack-guide.md` | Decisões de arquitetura, matriz de versões, mapeamento workshop ↔ produção, fluxo de cenas |
-
-> Referências de Confluent Cloud, AWS e Terraform foram removidas — workshop é 100% Docker self-managed. Histórico recuperável no git se necessário.
+| `faker-patterns.md` | Padrões da lib Faker, providers customizados, geração determinística |
+| `brazilian-data-formats.md` | CPF, CNPJ, telefones, CEP, chaves Pix, códigos bancários — formatos e validação |
+| `behavioral-patterns-guide.md` | Fluxos comportamentais (máquinas de estado, ciclos, sazonalidade, distribuições) |
+| `poison-pill-patterns.md` | 12 tipos de problemas de qualidade e estratégias de injeção — exercitados no lab de DLQ (Curso 3, Aula 4) |
 
 ## Quando consultar
 
-### Oracle CDC
-- Preparar Oracle XE para CDC (supplemental logging, LogMiner)
-- Configurar Debezium para `PAYMENTS.CONTAS`, `PAYMENTS.CARTOES`, `PAYMENTS.TRANSACOES`
-- Mapear tipos Oracle → Avro
-- Diagnosticar CDC lag e gaps de SCN
+### Connect & CDC (módulo 3)
+- Preparar Postgres 16 para CDC (`wal_level=logical`, REPLICA IDENTITY FULL, publication)
+- Configurar o conector Debezium gerenciado (`PostgresCdcSourceV2`) e SMTs (unwrap, RegexRouter)
+- Diagnosticar slot growth, schema drift e mensagens no Dead Letter Topic
+- Mapear tipos Postgres → Avro (Decimal para valores monetários)
 
-### Kafka & Schema Registry (local)
-- Configurar producers idempotentes
-- Registrar schemas Avro e gerenciar evolução BACKWARD
-- Desenhar topics (partições, retention, naming)
+### Kafka & Schema Registry
+- Configurar producers idempotentes com o perfil `KAFKA_PROFILE=cloud|local`
+- Registrar schemas Avro (`com.bootcamp.payments`) e gerenciar evolução BACKWARD
+- Desenhar topics (partições, retention, naming — ver [rules.md](../rules.md))
 
 ### Geração de dados
-- Construir geradores Faker determinísticos
-- Modelar entidades de pagamentos (contas, cartões, transações)
-- Aplicar padrões comportamentais (distribuição de horário, geografia, valor)
-- Injetar poison pills para cenas de qualidade de dados
+- Construir geradores Faker determinísticos para o domínio de pagamentos
+- Aplicar padrões comportamentais (distribuição de horário, geografia, valor, fraude)
+- Injetar poison pills para os labs de DLQ e qualidade de dados
 
-### Workshop (cenas)
-- Ver `workshop-stack-guide.md` para a matriz de versões e o fluxo conceitual
-- Aplicar `rules/workshop.md` para garantir cenas time-boxed e verificáveis
+### Stack & labs
+- Ver `bootcamp-stack-guide.md` para os componentes por módulo e os limites do fallback local
+- Aplicar `rules/labs.md` para garantir labs time-boxed, verificáveis e com teardown
+
+---
+
+**Última atualização**: 2026-07-11

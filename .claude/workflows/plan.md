@@ -117,8 +117,8 @@ Each todo item must have:
 
 Example:
 {
-  "content": "Create Avro schema for guia events",
-  "activeForm": "Creating Avro schema for guia events",
+  "content": "Create Avro schema for transaction events",
+  "activeForm": "Creating Avro schema for transaction events",
   "status": "pending"
 }
 ```
@@ -141,18 +141,18 @@ Bad task breakdown:
 ### Example Todo List
 
 ```markdown
-For: "Implement glosa detection with Flink CEP"
+For: "Implement fraud detection with Flink CEP"
 
-1. [ ] Design glosa detection event schema
-2. [ ] Create Kafka topic for guia events
-3. [ ] Create Kafka topic for glosa alerts
+1. [ ] Design fraud detection event schema
+2. [ ] Create Kafka topic for transaction events
+3. [ ] Create Kafka topic for fraud alerts
 4. [ ] Create Kafka topic for DLQ
-5. [ ] Write Avro schema for guia events
-6. [ ] Write Avro schema for glosa alerts
+5. [ ] Write Avro schema for transaction events
+6. [ ] Write Avro schema for fraud alerts
 7. [ ] Create Flink SQL table definitions
-8. [ ] Write CEP pattern for rapid guias
+8. [ ] Write CEP pattern for transaction velocity
 9. [ ] Write CEP pattern for unusual valores
-10. [ ] Write CEP pattern for prestador anomalies
+10. [ ] Write CEP pattern for merchant anomalies
 11. [ ] Create Flink job configuration
 12. [ ] Write unit tests for CEP patterns
 13. [ ] Create Terraform for topics
@@ -178,8 +178,8 @@ For: "Implement glosa detection with Flink CEP"
 
 ```markdown
 Request architecture diagrams:
-"Create an architecture diagram showing the glosa detection
-data flow from guia events through Flink to alerts"
+"Create an architecture diagram showing the fraud detection
+data flow from transaction events through Flink to alerts"
 
 Output: Mermaid diagram in documentation
 ```
@@ -210,7 +210,7 @@ Output: Mermaid diagram in documentation
 - [Consequence 2]
 
 ## Compliance Considerations
-- ANS: [Impact]
+- BACEN/LGPD: [Impact]
 - LGPD: [Impact]
 ```
 
@@ -261,7 +261,7 @@ Output: Mermaid diagram in documentation
 | Data Governance | PII/PHI fields, data contracts |
 | InfoSec | ACLs, encryption, sensitive data |
 | Architecture | New patterns, system integrations |
-| Compliance | ANS/LGPD impacting changes |
+| Compliance | LGPD/PCI impacting changes |
 
 ---
 
@@ -276,7 +276,7 @@ Output: Mermaid diagram in documentation
    - Data loss scenarios
 
 2. Compliance Risks
-   - ANS violations
+   - LGPD/PCI violations
    - LGPD non-compliance
    - Audit failures
 
@@ -368,7 +368,7 @@ Use AskUserQuestion tool for:
 - Timeline expectations
 
 Example:
-"I have two approaches for the glosa detection:
+"I have two approaches for the fraud detection:
 A) Single Flink job with all patterns (simpler, less flexible)
 B) Separate jobs per pattern (complex, more maintainable)
 Which approach do you prefer?"
@@ -461,7 +461,7 @@ User can:
 [How to undo changes if needed]
 
 ## Compliance Checklist
-- [ ] ANS requirements met
+- [ ] LGPD/PCI requirements met
 - [ ] LGPD requirements met
 - [ ] PII properly handled
 - [ ] Audit trail maintained
@@ -527,7 +527,7 @@ Starting with: [First todo item]"
 ### Example 1: Plan Kafka Topic Deployment
 
 ```markdown
-User: "Plan deploying a new Kafka topic for guias"
+User: "Plan deploying a new Kafka topic for transactions"
 
 PLAN Phase:
 1. Enter plan mode
@@ -540,7 +540,7 @@ PLAN Phase:
    - Update documentation
 3. Document decisions:
    - 12 partitions (10K msgs/sec / 1K per partition)
-   - 5-year retention (ANS)
+   - 30-day retention (lab budget)
    - Dedicated cluster (compliance)
 4. Identify dependencies:
    - Data Governance approval for PII fields
@@ -555,7 +555,7 @@ Output: Approved plan ready for ACT phase
 ### Example 2: Plan Schema Evolution
 
 ```markdown
-User: "Plan evolving the guia schema to add new field"
+User: "Plan evolving the transaction schema to add new field"
 
 PLAN Phase:
 1. Enter plan mode

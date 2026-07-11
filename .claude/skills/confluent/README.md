@@ -1,60 +1,71 @@
-# Confluent Platform Skills
+# Confluent Cloud Skills
 
-Skills para subir e gerenciar a stack local Confluent Platform / Kafka no workshop (100% Docker Compose).
+Skills para provisionar e operar a stack do bootcamp no **Confluent Cloud** (CLI `confluent` v4). Fallback local enxuto apenas para topics + Schema Registry.
 
 ## Skills
 
 | Skill | Command | Descrição |
 |-------|---------|-----------|
-| Docker Compose | `/confluent-docker-compose` | Gerar `docker-compose.yml` da stack (Kafka, SR, Connect, Oracle XE) |
-| Kafka Connect | `/confluent-connect` | Deploy e gerenciamento de connectors |
-| Oracle CDC | `/confluent-oracle-cdc` | Deploy de Debezium / Oracle CDC Source contra Oracle XE local |
-| Schema Registry | `/confluent-schema` | Gerenciar schemas Avro/JSON/Protobuf |
-| Topics | `/confluent-topics` | Criar e gerenciar topics |
-| Troubleshoot | `/confluent-troubleshoot` | Debug de issues comuns |
+| Cloud Setup | `/confluent-cloud-setup` | Aula 0: login, environment, cluster, API keys, service accounts, flink quickstart, teardown |
+| Topics | `/confluent-topics` | Criar e gerenciar topics (`confluent kafka topic ...`) |
+| Schema Registry | `/confluent-schema` | Schemas Avro/JSON/Protobuf, compatibilidade BACKWARD, Data Contracts |
+| Connect (geral) | `/confluent-connect` | Plugins, ciclo de vida e monitoramento de conectores gerenciados |
+| Managed Connector | `/confluent-managed-connector` | Source Debezium Postgres (CDC), sinks, SMT, DLQ — módulo 3 |
+| Tableflow | `/confluent-tableflow` | Materializar topics como tabelas Iceberg, catálogos — módulo 5 |
+| Troubleshoot | `/confluent-troubleshoot` | Debug: auth, conectores, SR, lag, Flink, billing |
+| Local Dev Fallback | `/confluent-local-dev-fallback` | Compose enxuto (1 broker KRaft + SR) para demos offline sem gastar créditos |
 
-> Skills específicas de Confluent Cloud (environments, networking PrivateLink, RBAC Cloud, Terraform Confluent) **foram removidas** — este workshop é 100% Docker self-managed. Para conteúdo de Cloud, consultar a documentação oficial Confluent.
+> **Cloud-first**: Connect, Flink e Tableflow existem **somente** no Confluent Cloud. O fallback local cobre apenas topics + Schema Registry ([local-dev-fallback.md](local-dev-fallback.md)).
 
 ## Quick start
 
-### 1. Subir a stack
+### 1. Aula 0 — setup e teardown
 ```
-"Use docker-compose para gerar a stack do ws-01 (Kafka, Zookeeper, Schema Registry, Control Center)"
+"Use cloud-setup para criar environment, cluster Basic, API keys e o teardown.sh do lab"
 ```
 
 ### 2. Criar topics
 ```
-"Use topics para criar dev.payments.gen.transacoes.created.v1 com 6 partições e retention de 7 dias"
+"Use topics para criar dev.payments.gen.transactions.created.v1 com 6 partições e retention de 7 dias"
 ```
 
-### 3. Deploy do Oracle CDC connector
+### 3. Registrar schemas
 ```
-"Use oracle-cdc para configurar Debezium no Oracle XE capturando PAYMENTS.TRANSACOES"
-```
-
-### 4. Registrar schemas
-```
-"Use schema para registrar o Avro de Transacao no subject dev.payments...-value"
+"Use schema-registry para registrar o Avro de TransactionCreated no subject dev.payments.gen.transactions.created.v1-value com BACKWARD"
 ```
 
-### 5. Debug
+### 4. CDC do módulo 3
 ```
-"Use troubleshoot — o connector está em FAILED, ver últimas exceções"
+"Use managed-connector para configurar o Debezium Postgres capturando public.transactions do pg-payments"
 ```
 
-## UIs locais
+### 5. Lakehouse do módulo 5
+```
+"Use tableflow para materializar dev.payments.flink.transactions.enriched.v1 como tabela Iceberg"
+```
 
-| Serviço | URL | Notas |
-|---------|-----|-------|
-| Control Center | http://localhost:9021 | UI Kafka + Connect + SR |
-| Schema Registry | http://localhost:8081 | REST API |
-| Kafka Connect | http://localhost:8083 | REST API |
-| Kafka Broker | localhost:9092 | PLAINTEXT (workshop local) |
+### 6. Debug
+```
+"Use troubleshoot — o conector está FAILED, ver trace e eventos"
+```
+
+## Endpoints
+
+| Recurso | Onde obter |
+|---------|-----------|
+| Bootstrap (`CC_BOOTSTRAP`) | `confluent kafka cluster describe <cluster-id>` |
+| Schema Registry (`SR_URL`) | `confluent schema-registry cluster describe` |
+| Fallback local | `localhost:9092` (PLAINTEXT) + `http://localhost:8081` |
 
 ## Related agents
 
-- `confluent-platform-expert` — `.claude/agents/confluent-platform-expert.md`
-- `oracle-cdc-expert` — `.claude/agents/oracle-cdc-expert.md`
-- `oracle-database-expert` — `.claude/agents/oracle-database-expert.md`
+- `confluent-cloud-expert` — `.claude/agents/confluent-cloud-expert.md`
+- `connect-cdc-expert` — `.claude/agents/connect-cdc-expert.md`
+- `flink-confluent-expert` — `.claude/agents/flink-confluent-expert.md`
+- `tableflow-lakehouse-expert` — `.claude/agents/tableflow-lakehouse-expert.md`
 - `kafka-streaming-expert` — `.claude/agents/kafka-streaming-expert.md`
 - `kafka-security-expert` — `.claude/agents/kafka-security-expert.md`
+
+---
+
+**Última atualização**: 2026-07-11

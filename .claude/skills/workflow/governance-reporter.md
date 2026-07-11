@@ -2,7 +2,7 @@
 
 ## Skill: `/governance-reporter`
 
-Generate governance reports for the workshop's Confluent Cloud data platform covering data catalog, schema inventory, PII/PHI audit, topic health, and compliance status.
+Gera relatórios de governança da plataforma do bootcamp no Confluent Cloud: catálogo de dados, inventário de schemas, auditoria PII/PCI (LGPD), saúde de topics/conectores e acesso. Usa **Stream Governance** (Stream Catalog + Stream Lineage) como fonte — conteúdo da **Live 3**.
 
 ## Usage
 
@@ -11,267 +11,197 @@ Generate governance reports for the workshop's Confluent Cloud data platform cov
 ```
 
 ### Report Types
-- `catalog` - Full data catalog (topics, schemas, ownership)
-- `pii-audit` - PII/PHI field inventory across all topics
-- `schema-inventory` - Schema versions, compatibility, evolution
-- `topic-health` - Topic throughput, lag, DLQ status
-- `access-audit` - Service accounts, ACLs, API keys
-- `compliance` - Combined LGPD/ANS/SOC2 status
-- `full` - Complete governance report
+- `catalog` — Catálogo (topics, schemas, ownership)
+- `pii-audit` — Inventário de campos PII/PCI (LGPD)
+- `schema-inventory` — Versões, compatibilidade, evolução
+- `topic-health` — Throughput, lag, DLQ
+- `access-audit` — Service accounts, ACLs, API keys
+- `full` — Relatório completo
 
 ---
 
-## Data Catalog Report
-
-### Topic Inventory
+## Catálogo de dados
 
 ```bash
-# List all topics with configs
-confluent kafka topic list --cluster <cluster-id> -o json | jq '[.[] | {
-  name: .name,
-  partitions: .partitions_count,
-  replication: .replication_factor
-}]'
-
-# Topic details
-confluent kafka topic describe <topic> --cluster <cluster-id> -o json
+confluent kafka topic list -o json | jq '[.[] | {name: .name}]'
+confluent kafka topic describe <topic>
 ```
 
-### Report Template
+### Template
 
 ```markdown
 # Data Catalog Report
-**Generated**: YYYY-MM-DD HH:MM
-**Environment**: prod
-**Cluster**: workshop-local
+**Gerado**: YYYY-MM-DD HH:MM
+**Environment**: bootcamp-dev
+**Cluster**: bootcamp-cluster
 
 ## Topic Inventory
 
-| Domain | Topic | Partitions | Retention | Schema | Owner |
-|--------|-------|-----------|-----------|--------|-------|
-| Saude | prod.saude.oracle-beneficiarios.membros.cdc.v1 | 12 | compact | Avro v2 | data-platform |
-| Saude | prod.saude.oracle-beneficiarios.planos.cdc.v1 | 12 | compact | Avro v2 | data-platform |
-| Saude | prod.saude.oracle-autorizacoes.guias.cdc.v1 | 24 | 30d | Avro v3 | data-platform |
-| Saude | prod.saude.oracle-prestadores.prestadores.cdc.v1 | 12 | compact | Avro v1 | data-platform |
-| Saude | prod.saude.oracle-faturamento.faturas.cdc.v1 | 24 | 30d | Avro v1 | data-platform |
-| Saude | prod.saude.flink.guias.enriched.v1 | 24 | 30d | Avro v1 | data-platform |
-| Saude | prod.saude.flink.glosa_alerts.detected.v1 | 6 | 365d | Avro v1 | auditoria-team |
-
-**Total Topics**: X
-**Total Partitions**: Y
-**Total Schemas**: Z
+| Domain | Topic | Partições | Retenção | Schema | Owner |
+|--------|-------|-----------|----------|--------|-------|
+| Payments | dev.payments.pg-payments.accounts.cdc.v1 | 6 | 7d | Avro v2 | bootcamp-payments |
+| Payments | dev.payments.pg-payments.cards.cdc.v1 | 6 | 7d | Avro v1 | bootcamp-payments |
+| Payments | dev.payments.pg-payments.transactions.cdc.v1 | 6 | 7d | Avro v3 | bootcamp-payments |
+| Payments | dev.payments.flink.transactions.enriched.v1 | 6 | 7d | Avro v1 | bootcamp-payments |
+| Payments | dev.payments.flink.fraud.detected.v1 | 3 | 30d | Avro v1 | bootcamp-payments |
 ```
+
+> Na UI, o mesmo inventário (com tags e lineage) está em **Environment → Stream Governance → Stream Catalog**.
 
 ---
 
-## PII/PHI Audit Report
-
-### PII/PHI Field Discovery
+## Auditoria PII/PCI (LGPD)
 
 ```bash
-# Find all schemas with PII/PHI tags
+# Subjects com campos taggeados como sensíveis
 for subject in $(confluent schema-registry subject list -o json | jq -r '.[]'); do
-  schema=$(confluent schema-registry schema describe --subject "$subject" --version latest -o json 2>/dev/null)
-  pii_count=$(echo "$schema" | jq '[.schema.fields[]? | select(.["confluent:tags"]? | contains(["PII"]))] | length' 2>/dev/null)
-  phi_count=$(echo "$schema" | jq '[.schema.fields[]? | select(.["confluent:tags"]? | contains(["PHI"]))] | length' 2>/dev/null)
-  if [ "$pii_count" -gt "0" ] || [ "$phi_count" -gt "0" ]; then
-    echo "SENSITIVE: $subject (PII=$pii_count, PHI=$phi_count fields)"
-  fi
+  schema=$(confluent schema-registry schema describe --subject "$subject" --version latest 2>/dev/null)
+  pii=$(echo "$schema" | grep -cE '"PII"|"LGPD"' || true)
+  pci=$(echo "$schema" | grep -c '"PCI"' || true)
+  { [ "$pii" -gt 0 ] || [ "$pci" -gt 0 ]; } && echo "SENSITIVE: $subject (PII=$pii, PCI=$pci)"
 done
 ```
 
-### Report Template
+### Template
 
 ```markdown
-# PII/PHI Audit Report
-**Generated**: YYYY-MM-DD
+# PII/PCI Audit Report — LGPD
+**Gerado**: YYYY-MM-DD
 
-## PII Field Inventory
+## Inventário PII
 
-| Topic | Field | Type | Protection | LGPD Category |
-|-------|-------|------|------------|---------------|
-| ...membros.cdc.v1 | cpf | string | SHA-256 tokenized | Personal ID |
-| ...membros.cdc.v1 | cns | string | SHA-256 tokenized | Personal ID |
-| ...membros.cdc.v1 | nome | string | Masked in non-prod | Personal ID |
-| ...membros.cdc.v1 | email | string | SHA-256 tokenized | Contact |
-| ...membros.cdc.v1 | telefone | string | SHA-256 tokenized | Contact |
-| ...guias.cdc.v1 | membro_cpf | string | SHA-256 tokenized | Personal ID |
+| Topic | Campo | Tipo | Proteção | Categoria LGPD |
+|-------|-------|------|----------|----------------|
+| ...accounts.cdc.v1 | cpf | string | SHA-256 (Flink tokenization) | Identificação |
+| ...accounts.cdc.v1 | email | string | MaskField no conector | Contato |
+| ...transactions.cdc.v1 | cpf | string | SHA-256 (Flink tokenization) | Identificação |
 
-## PHI Field Inventory
+## Inventário PCI
 
-| Topic | Field | Type | Protection | ANS Category |
-|-------|-------|------|------------|--------------|
-| ...guias.cdc.v1 | cid_10 | string | Strict access control | Health Data |
-| ...guias.cdc.v1 | procedimento | string | Strict access control | Health Data |
-| ...laudos.cdc.v1 | diagnostico | string | Strict access control | Health Data |
-| ...laudos.cdc.v1 | laudo_texto | string | Strict access control | Health Data |
+| Topic | Campo | Proteção |
+|-------|-------|----------|
+| ...cards.cdc.v1 | card_pan_masked | BIN+last4 sempre; nunca cleartext |
 
-## Protection Status
+## Status
 
-| Protection Method | Fields | Topics |
-|-------------------|--------|--------|
-| SHA-256 Tokenization | X | Y |
-| Field Masking | X | Y |
-| Column Exclusion | X | Y |
-| Strict Access Control (PHI) | X | Y |
-| Unprotected PII | X | Y |  <- MUST be 0
-| Unprotected PHI | X | Y |  <- MUST be 0
-
-## Recommendations
-- [List any unprotected PII/PHI that needs immediate action]
+| Método | Campos | Topics |
+|--------|--------|--------|
+| Tokenização SHA-256 | X | Y |
+| Mascaramento (SMT) | X | Y |
+| PII sem proteção | X | Y |  <- DEVE ser 0
+| PCI sem proteção | X | Y |  <- DEVE ser 0
 ```
 
 ---
 
-## Schema Inventory Report
+## Inventário de schemas
 
 ```bash
-# List all subjects with versions
 for subject in $(confluent schema-registry subject list -o json | jq -r '.[]'); do
-  versions=$(confluent schema-registry schema list --subject "$subject" -o json | jq length)
-  compat=$(confluent schema-registry subject describe "$subject" -o json | jq -r '.compatibilityLevel // "BACKWARD"')
-  echo "$subject | versions=$versions | compatibility=$compat"
+  versions=$(confluent schema-registry schema list --subject-prefix "$subject" -o json | jq length)
+  echo "$subject | versions=$versions"
 done
 ```
-
-### Report Template
 
 ```markdown
 # Schema Inventory
-**Generated**: YYYY-MM-DD
+| Subject | Formato | Versões | Compatibilidade |
+|---------|---------|---------|-----------------|
+| ...transactions.cdc.v1-value | Avro | 3 | BACKWARD |
+| ...accounts.cdc.v1-value | Avro | 2 | BACKWARD |
 
-| Subject | Format | Versions | Compatibility | Last Updated |
-|---------|--------|----------|---------------|-------------|
-| ...guias.cdc.v1-value | Avro | 3 | BACKWARD | 2026-02-10 |
-| ...membros.cdc.v1-value | Avro | 2 | BACKWARD | 2026-02-05 |
-| ...prestadores.cdc.v1-value | Avro | 1 | BACKWARD | 2026-01-20 |
-
-## Schema Evolution History
-- v3 (2026-02-10): Added `coparticipacao` field (nullable)
-- v2 (2026-01-15): Added `tipo_guia` field with default "CONSULTA"
-- v1 (2026-01-01): Initial schema
+## Evolução
+- v3: adiciona `fraud_score` (nullable, default null)
+- v2: adiciona `mcc` (nullable)
+- v1: schema inicial
 ```
 
 ---
 
-## Topic Health Report
-
-### Health Check Commands
+## Saúde de topics e pipeline
 
 ```bash
-# Consumer group lag
-confluent kafka consumer-group lag describe <group> --cluster <cluster-id>
+# Lag por consumer group
+confluent kafka consumer group lag describe <group>
 
-# DLQ message count
-confluent kafka topic consume <dlq-topic> --cluster <cluster-id> --from-beginning --count
+# Conectores
+confluent connect cluster list
 
-# Connector status
-confluent connect cluster list --cluster <cluster-id> -o json
+# Statements Flink
+confluent flink statement list
+
+# Consumer lag via Metrics API (automação — módulo 7)
+curl -s https://api.telemetry.confluent.cloud/v2/metrics/cloud/query \
+  -u "$CLOUD_API_KEY:$CLOUD_API_SECRET" \
+  -H 'Content-Type: application/json' \
+  -d '{"aggregations":[{"metric":"io.confluent.kafka.server/consumer_lag_offsets"}],
+       "filter":{"field":"resource.kafka.id","op":"EQ","value":"<cluster-id>"},
+       "group_by":["metric.consumer_group_id"],
+       "granularity":"PT1M","intervals":["PT1H/now"]}' | jq
 ```
-
-### Report Template
 
 ```markdown
 # Topic Health Report
-**Generated**: YYYY-MM-DD HH:MM
 
-## CDC Pipeline Health
+## Pipeline CDC
+| Conector | Status | Tasks | DLQ |
+|----------|--------|-------|-----|
+| pg-payments-cdc-source | RUNNING | 1/1 | 0 |
 
-| Connector | Status | Tasks | Lag (s) | DLQ Count |
-|-----------|--------|-------|---------|-----------|
-| oracle-cdc-beneficiarios | RUNNING | 1/1 | 12 | 0 |
-| oracle-cdc-autorizacoes | RUNNING | 1/1 | 8 | 0 |
-| oracle-cdc-prestadores | RUNNING | 1/1 | 5 | 0 |
-| oracle-cdc-faturamento | RUNNING | 1/1 | 15 | 0 |
+## Consumer Lag
+| Group | Topic | Lag | Status |
+|-------|-------|-----|--------|
+| flink (tx-enrichment) | transactions.cdc | 120 | OK |
 
-## Consumer Group Lag
-
-| Group | Topic | Lag (records) | Status |
-|-------|-------|---------------|--------|
-| flink-enrichment | guias.cdc | 245 | OK |
-| s3-sink | guias.enriched | 1,230 | OK |
-| snowflake-ingest | guias.enriched | 890 | OK |
-| glosa-detection | guias.cdc | 12 | OK |
-
-## Flink Jobs
-
-| Job | Status | CFUs | State Size |
-|-----|--------|------|------------|
-| guia-enrichment | RUNNING | 10 | 2.1 GB |
-| glosa-detection | RUNNING | 8 | 1.5 GB |
-| hourly-aggregation | RUNNING | 4 | 0.8 GB |
-| pii-phi-tokenization | RUNNING | 4 | 0.3 GB |
-
-## Alerts
-- [List any active alerts or issues]
+## Flink Statements
+| Statement | Status | Compute pool |
+|-----------|--------|--------------|
+| tx-enrichment | RUNNING | bootcamp-flink |
+| fraud-velocity | RUNNING | bootcamp-flink |
 ```
 
 ---
 
-## Access Audit Report
+## Auditoria de acesso
 
 ```bash
-# Service accounts
 confluent iam service-account list -o json
-
-# ACLs per service account
-confluent kafka acl list --service-account <sa-id> --cluster <cluster-id>
-
-# API keys
+confluent kafka acl list --service-account <sa-id>
 confluent api-key list --service-account <sa-id>
 ```
 
-### Report Template
-
 ```markdown
-# Access Audit Report
-**Generated**: YYYY-MM-DD
-
-## Service Accounts
-
-| SA ID | Name | API Keys | Last Activity | ACL Count |
-|-------|------|----------|---------------|-----------|
-| sa-abc123 | sa-workshop-oracle-cdc-beneficiarios | 2 | 2026-02-12 | 8 |
-| sa-def456 | sa-workshop-flink-enrichment | 1 | 2026-02-12 | 6 |
-| sa-ghi789 | sa-workshop-s3-sink | 1 | 2026-02-12 | 4 |
-| sa-jkl012 | sa-workshop-snowflake-ingest | 1 | 2026-02-12 | 4 |
-
-## API Key Rotation Status
-
-| API Key | Service Account | Created | Age (days) | Status |
-|---------|----------------|---------|------------|--------|
-| KEY-001 | sa-workshop-oracle-cdc-beneficiarios | 2026-01-01 | 42 | OK (<90d) |
-| KEY-002 | sa-workshop-flink-enrichment | 2025-11-15 | 89 | WARN (near 90d) |
+# Access Audit
+| SA | Nome | API Keys | ACLs |
+|----|------|----------|------|
+| sa-xxxxx | sa-lab-modulo-03 | 1 | write dev.payments.* (prefix) |
+| sa-yyyyy | sa-lab-modulo-04 | 1 | read dev.payments.* (prefix) |
 
 ## Findings
-- [List any excessive permissions, stale accounts, or overdue rotations]
+- [permissões excessivas, SAs órfãos de labs encerrados, keys antigas]
 ```
 
 ---
 
-## Report Generation Schedule
+## Frequência (contexto bootcamp)
 
-| Report | Frequency | Audience | Automation |
-|--------|-----------|----------|------------|
-| Topic Health | Daily | Engineering | Automated |
-| PII/PHI Audit | Weekly | Security + Compliance | Automated |
-| Schema Inventory | Weekly | Data Platform | Automated |
-| Access Audit | Monthly | Security | Semi-automated |
-| Compliance | Quarterly | Management + Audit | Manual review |
-| Full Governance | Quarterly | All stakeholders | Manual review |
+| Relatório | Quando | Uso |
+|-----------|--------|-----|
+| Topic health | A cada lab | Verificação de fim de lab |
+| PII/PCI audit | Live 3 + desafio final | Demonstração LGPD |
+| Schema inventory | Módulo 2 e mudanças | Evolução BACKWARD |
+| Access audit | Fim de cada módulo | Limpar SAs/keys órfãs (teardown) |
 
 ---
 
-## Best Practices
+## Best practices
 
-1. **Automate daily health reports** with scheduled scripts
-2. **Alert on any unprotected PII/PHI** discovered in new schemas
-3. **Track schema evolution** to prevent breaking changes
-4. **Review API key ages** weekly and rotate proactively
-5. **Store reports in Git** for historical tracking
-6. **Present quarterly** governance status to leadership
+1. **Stream Catalog/Lineage como fonte** — o relatório é um snapshot, a UI é viva
+2. **Alertar em PII/PCI sem proteção** — deve ser sempre 0
+3. **Auditar acesso no teardown** — SA de lab encerrado é risco e ruído
+4. **Versionar relatórios no Git** do lab correspondente
+5. **Usar a auditoria PII como material da Live 3** — o relatório é o artefato da aula
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2026-02-12
+**Última atualização**: 2026-07-11

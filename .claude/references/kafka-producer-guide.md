@@ -1,94 +1,91 @@
 # Kafka Producer Guide
 
-> **Best practices for producing synthetic payments data to Kafka**
+> **Best practices for producing synthetic payments data to Confluent Cloud (with the slim local fallback)**
+
+Delivery semantics are a bootcamp anchor: topics use **RF=3**, **`min.insync.replicas=2`**, and producers use **`acks=all`** + idempotence. Every config below follows those defaults unless explicitly trading them away.
 
 ## Producer Configuration
 
-### Basic Configuration
+### Profile Selector (`KAFKA_PROFILE=cloud|local`)
+
+Credentials always come from env vars (`CC_*`) — never hardcoded, never committed (see [rules.md](../rules.md)). The cloud/local switch is a single configuration point:
+
 ```python
+import os
+
 from confluent_kafka import Producer
 
-producer_config = {
-    # Connection
-    "bootstrap.servers": "localhost:9092",
-    "client.id": "data-gen-producer",
+CLOUD_PRODUCER_CONFIG = {
+    # Connection — Confluent Cloud
+    "bootstrap.servers": os.environ["CC_BOOTSTRAP"],
+    "client.id": "bootcamp-gen-payments",
 
-    # Reliability
+    # Authentication
+    "security.protocol": "SASL_SSL",
+    "sasl.mechanisms": "PLAIN",
+    "sasl.username": os.environ["CC_API_KEY"],
+    "sasl.password": os.environ["CC_API_SECRET"],
+
+    # Reliability (bootcamp anchor: acks=all + idempotence)
     "acks": "all",
-    "retries": 3,
-    "retry.backoff.ms": 100,
+    "enable.idempotence": True,
+    "max.in.flight.requests.per.connection": 5,
 
     # Performance
     "linger.ms": 5,
     "batch.size": 16384,
     "compression.type": "snappy",
-
-    # Ordering
-    "enable.idempotence": True,
-    "max.in.flight.requests.per.connection": 5,
 }
 
-producer = Producer(producer_config)
-```
+LOCAL_PRODUCER_CONFIG = {
+    # Connection — local fallback (single KRaft broker, PLAINTEXT)
+    "bootstrap.servers": "localhost:9092",
+    "client.id": "bootcamp-gen-payments",
 
-### Confluent Cloud Configuration
-```python
-confluent_cloud_config = {
-    # Connection
-    "bootstrap.servers": "<confluent-cloud-bootstrap>.confluent.cloud:9092",
-    "client.id": "workshop-data-gen",
-
-    # Authentication
-    "security.protocol": "SASL_SSL",
-    "sasl.mechanisms": "PLAIN",
-    "sasl.username": "<API_KEY>",
-    "sasl.password": "<API_SECRET>",
-
-    # Reliability
+    # Same reliability settings (but RF=1 locally — see note below)
     "acks": "all",
-    "retries": 5,
-    "retry.backoff.ms": 200,
-
-    # Performance
-    "linger.ms": 10,
-    "batch.size": 32768,
-    "compression.type": "lz4",
-
-    # Ordering
     "enable.idempotence": True,
-    "max.in.flight.requests.per.connection": 5,
+    "linger.ms": 5,
+    "compression.type": "snappy",
 }
+
+
+def build_producer() -> Producer:
+    """Build a producer for the active profile (KAFKA_PROFILE=cloud|local)."""
+    profile = os.environ.get("KAFKA_PROFILE", "cloud")
+    config = CLOUD_PRODUCER_CONFIG if profile == "cloud" else LOCAL_PRODUCER_CONFIG
+    return Producer(config)
+
+
+producer = build_producer()
 ```
+
+> **Local fallback caveat**: with a single broker, RF=1 — the reliability defaults (RF=3, `min.insync.replicas=2`) cannot be demonstrated locally. Say so explicitly when recording local demos.
 
 ### High-Throughput Configuration
 ```python
-high_throughput_config = {
-    "bootstrap.servers": "localhost:9092",
-    "client.id": "data-gen-high-throughput",
+high_throughput_overrides = {
+    # Apply on top of the active profile config
+    "client.id": "bootcamp-gen-high-throughput",
 
     # Maximize throughput
-    "acks": "1",  # Trade reliability for speed
+    "acks": "1",  # Trades the reliability anchor for speed — lab use only
     "linger.ms": 50,  # Wait longer to batch
     "batch.size": 65536,  # Larger batches
     "compression.type": "lz4",  # Faster compression
 
     # Buffer management
-    "buffer.memory": 67108864,  # 64MB
     "queue.buffering.max.messages": 100000,
 }
 ```
 
 ### Demo/Development Configuration
 ```python
-demo_config = {
-    "bootstrap.servers": "localhost:9092",
-    "client.id": "data-gen-demo",
+demo_overrides = {
+    # Apply on top of the active profile config
+    "client.id": "bootcamp-gen-demo",
 
-    # Simple, reliable
-    "acks": "all",
-    "retries": 3,
-
-    # Small batches for visibility
+    # Small batches for visibility in live demos
     "linger.ms": 0,
     "batch.size": 1024,
 }
@@ -98,27 +95,31 @@ demo_config = {
 
 ### Avro Serialization
 ```python
+import os
+
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 
-# Schema Registry client
+# Schema Registry client — Confluent Cloud (SR_* env vars per rules.md)
 schema_registry = SchemaRegistryClient({
-    "url": "http://localhost:8081",
+    "url": os.environ["SR_URL"],
+    "basic.auth.user.info": f"{os.environ['SR_API_KEY']}:{os.environ['SR_API_SECRET']}",
 })
+# Local fallback: {"url": "http://localhost:8081"} — no auth
 
-# Avro schema — Guia TISS
+# Avro schema — payments transaction
 avro_schema = """
 {
     "type": "record",
-    "name": "Guia",
-    "namespace": "com.workshop.payments",
+    "name": "Transaction",
+    "namespace": "com.bootcamp.payments",
     "fields": [
-        {"name": "guia_id", "type": "string"},
-        {"name": "numero_guia", "type": "string"},
-        {"name": "membro_id", "type": "string"},
-        {"name": "tipo_guia", "type": "string"},
-        {"name": "valor_autorizado", "type": "double"},
-        {"name": "dt_solicitacao", "type": "long", "logicalType": "timestamp-millis"}
+        {"name": "transaction_id", "type": "string"},
+        {"name": "account_id", "type": "string"},
+        {"name": "card_id", "type": ["null", "string"], "default": null},
+        {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}},
+        {"name": "status", "type": "string"},
+        {"name": "created_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
     ]
 }
 """
@@ -132,8 +133,8 @@ avro_serializer = AvroSerializer(
 
 # Produce with schema
 producer.produce(
-    topic="dev.saude.oracle-autorizacoes.guias.cdc.v1",
-    key=str(record["guia_id"]),
+    topic="dev.payments.gen.transactions.created.v1",
+    key=str(record["transaction_id"]),
     value=avro_serializer(record, None),
 )
 ```
@@ -147,10 +148,9 @@ json_schema = """
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
     "properties": {
-        "membro_id": {"type": "string"},
+        "account_id": {"type": "string"},
         "cpf": {"type": "string"},
-        "nome": {"type": "string"},
-        "plano_id": {"type": "string"},
+        "name": {"type": "string"},
         "status": {"type": "string"}
     }
 }
@@ -235,7 +235,7 @@ def delivery_callback(err, msg):
         print(f"Delivered to {msg.topic()}[{msg.partition()}]@{msg.offset()}")
 
 producer.produce(
-    topic="dev.saude.oracle-beneficiarios.membros.cdc.v1",
+    topic="dev.payments.gen.accounts.snapshot.v1",
     value=record,
     callback=delivery_callback,
 )
@@ -268,7 +268,7 @@ class ProducerMetrics:
 
 metrics = ProducerMetrics()
 producer.produce(
-    topic="dev.saude.oracle-autorizacoes.guias.cdc.v1",
+    topic="dev.payments.gen.transactions.created.v1",
     value=record,
     callback=metrics.on_delivery,
 )
@@ -310,14 +310,23 @@ def produce_with_retry(
 
 ### Topic Creation
 ```python
+import os
+
 from confluent_kafka.admin import AdminClient, NewTopic
 
-admin = AdminClient({"bootstrap.servers": "localhost:9092"})
+# Reuses the connection/auth keys from the active profile config
+admin = AdminClient({
+    "bootstrap.servers": os.environ["CC_BOOTSTRAP"],
+    "security.protocol": "SASL_SSL",
+    "sasl.mechanisms": "PLAIN",
+    "sasl.username": os.environ["CC_API_KEY"],
+    "sasl.password": os.environ["CC_API_SECRET"],
+})
 
 def create_topic(
     name: str,
     partitions: int = 6,
-    replication: int = 1,
+    replication: int = 3,  # Bootcamp anchor: RF=3 (Confluent Cloud enforces this)
     config: dict = None,
 ) -> None:
     """Create Kafka topic."""
@@ -336,53 +345,24 @@ def create_topic(
         except Exception as e:
             print(f"Failed to create {topic_name}: {e}")
 
-# Create topics for payments CDC
+# Create topics for the payments labs (naming convention: rules.md)
+# min.insync.replicas=2 is the cluster default in Confluent Cloud
 for topic_name, parts in [
-    ("dev.saude.oracle-beneficiarios.membros.cdc.v1", 6),
-    ("dev.saude.oracle-autorizacoes.guias.cdc.v1", 12),
-    ("dev.saude.oracle-prestadores.prestadores.cdc.v1", 3),
-    ("dev.saude.oracle-faturamento.mensalidades.cdc.v1", 6),
+    ("dev.payments.pg-payments.accounts.cdc.v1", 6),
+    ("dev.payments.pg-payments.cards.cdc.v1", 6),
+    ("dev.payments.pg-payments.transactions.cdc.v1", 12),
+    ("dev.payments.gen.transactions.created.v1", 6),
 ]:
     create_topic(
         topic_name,
         partitions=parts,
         config={
-            "retention.ms": "86400000",  # 1 day for dev
+            "retention.ms": "86400000",  # 1 day for lab topics (credit discipline)
             "cleanup.policy": "delete",
         },
     )
 ```
 
-## Docker Compose Setup
+## Local Fallback (Docker Compose)
 
-```yaml
-version: '3.8'
-
-services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-
-  schema-registry:
-    image: confluentinc/cp-schema-registry:7.5.0
-    depends_on:
-      - kafka
-    ports:
-      - "8081:8081"
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
-```
+Slim KRaft single-broker + Schema Registry stack for offline demos/recording without spending credits — see [skills/confluent/local-dev-fallback.md](../skills/confluent/local-dev-fallback.md) for the canonical compose file and its limits. Use `KAFKA_PROFILE=local` so producers point at `localhost:9092` (PLAINTEXT) and `http://localhost:8081` without touching code.

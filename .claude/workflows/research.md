@@ -77,15 +77,14 @@ The RESEARCH phase ensures you have complete understanding before planning or im
 
 | Topic | Reference File | Check For |
 |-------|---------------|-----------|
-| Python Kafka clients | `kafka-clients-python.md` | Library versions, new APIs |
-| Java Kafka clients | `kafka-clients-java.md` | Spring Kafka updates |
-| Flink SQL | `flink-sql-patterns.md` | New SQL features, CEP updates |
-| Kafka Connect | `kafka-connect-reference.md` | New connectors, SMT changes |
-| Schema Registry | `schema-registry-guide.md` | New features, compatibility |
-| Testing | `kafka-testing-guide.md` | New testing tools |
-| Advanced Patterns | `kafka-advanced-patterns.md` | EOS, transaction changes |
-| Data Governance | `data-governance-patterns.md` | New standards, tools |
-| Stream Governance | `confluent-stream-governance.md` | Confluent Cloud updates |
+| Stack do bootcamp | `bootcamp-stack-guide.md` | Confluent Cloud updates, fallback local |
+| CDC / Connect | `cdc-connect-patterns.md` | Debezium updates, SMT changes |
+| Producers Kafka | `kafka-producer-guide.md` | Library versions, delivery semantics |
+| Modelagem de dados | `data-modeling.md` | Schema evolution patterns |
+| Dados sintéticos | `faker-patterns.md` | Provider updates |
+| Formatos brasileiros | `brazilian-data-formats.md` | CPF/CNPJ/PIX rules |
+| Padrões comportamentais | `behavioral-patterns-guide.md` | Fraud pattern shapes |
+| Poison pills / DLQ | `poison-pill-patterns.md` | DLQ handling updates |
 
 ### Check Reference Currency
 
@@ -136,13 +135,13 @@ Example searches:
 #### Compliance Regulations
 ```
 Sites to search:
-- ans.gov.br (ANS official)
 - gov.br/lgpd (LGPD official)
-- tiss.ans.gov.br (TISS/TUSS standards)
+- bcb.gov.br (BACEN — PIX, open finance)
+- pcisecuritystandards.org (PCI-DSS)
 
 Example searches:
-"site:ans.gov.br resolução normativa 2024"
-"site:ans.gov.br tiss padrão"
+"site:bcb.gov.br resolução PIX 2026"
+"LGPD anonimização streaming dados pessoais"
 ```
 
 ### Using web-research Skill
@@ -204,14 +203,15 @@ features released in 2024, focusing on CEP and MATCH_RECOGNIZE"
 
 | Research Topic | Primary Agent | Supporting Agents |
 |---------------|---------------|-------------------|
-| Kafka architecture | `kafka-architecture-expert` | `kafka-operations-expert` |
-| Stream processing | `flink-streaming-expert` | `kafka-architecture-expert` |
-| Confluent Cloud | `confluent-cloud-expert` | `aws-expert` |
-| Data integration | `kafka-connect-expert` | `kafka-architecture-expert` |
-| Security/Compliance | `kafka-security-expert` | `data-governance-expert` |
-| Domain-specific (legacy: health insurance) | `data-modeler` (legacy: `health-insurance-data-expert`, removido) | `kafka-security-expert` |
-| Data governance | `data-governance-expert` | `kafka-security-expert` |
-| AWS infrastructure | `aws-expert` | `confluent-cloud-expert` |
+| Kafka / streaming patterns | `kafka-streaming-expert` | `data-modeler` |
+| Stream processing (Flink SQL) | `flink-confluent-expert` | `kafka-streaming-expert` |
+| Confluent Cloud (setup, clusters, custos) | `confluent-cloud-expert` | `observability-cost-expert` |
+| Data integration (Connect/CDC) | `connect-cdc-expert` | `kafka-streaming-expert` |
+| Lakehouse (Tableflow/Iceberg/catálogos) | `tableflow-lakehouse-expert` | `data-modeler` |
+| Real-Time AI (ML_PREDICT, Vector Search) | `realtime-ai-expert` | `flink-confluent-expert` |
+| Security/Compliance (RBAC, LGPD) | `kafka-security-expert` | `data-modeler` |
+| Observabilidade e produção | `observability-cost-expert` | `confluent-cloud-expert` |
+| Domain-specific (payments/fraude) | `data-modeler` | `data-quality-expert` |
 
 ### Questions to Ask Agents
 
@@ -222,7 +222,7 @@ Architecture questions:
 - "What are the trade-offs between [A] and [B]?"
 
 Compliance questions:
-- "Does this approach meet ANS requirements?"
+- "Does this approach meet LGPD/BACEN requirements?"
 - "What LGPD considerations apply to this data?"
 - "Are there any new regulatory requirements?"
 
@@ -407,7 +407,7 @@ Key findings: [summary]. Proceed to PLAN phase?"
 ### Example 1: Research Flink CEP for Fraud Detection
 
 ```markdown
-User: "Research how to implement glosa detection using Flink CEP"
+User: "Research how to implement fraud detection using Flink CEP"
 
 RESEARCH Phase:
 1. Read references/flink-sql-patterns.md (CEP section)
@@ -415,8 +415,8 @@ RESEARCH Phase:
 3. Found: New timeout clause in Flink 1.19
 4. Update: Added timeout examples to flink-sql-patterns.md
 5. Consult: flink-streaming-expert for patterns
-6. Consult: health-insurance-data-expert for ANS requirements
-7. Explore: Found existing glosa patterns in /src/flink/glosa/
+6. Consult: data-modeler for payments domain requirements
+7. Explore: Found existing fraud patterns in /src/flink/fraud/
 8. Synthesize: Research summary with CEP approach recommendation
 
 Output: Research summary ready for PLAN phase
@@ -425,7 +425,7 @@ Output: Research summary ready for PLAN phase
 ### Example 2: Research Schema Evolution
 
 ```markdown
-User: "Research how to evolve our guia TISS schema"
+User: "Research how to evolve our transaction schema"
 
 RESEARCH Phase:
 1. Read references/schema-registry-guide.md
@@ -433,7 +433,7 @@ RESEARCH Phase:
 3. Found: No significant updates needed
 4. Consult: kafka-architecture-expert for evolution strategy
 5. Consult: health-insurance-data-expert for PII/PHI field handling
-6. Explore: Found current schema in /schemas/guia-v1.avsc
+6. Explore: Found current schema in /schemas/transaction-v1.avsc
 7. Synthesize: Evolution options with compatibility analysis
 
 Output: Research summary with schema evolution options

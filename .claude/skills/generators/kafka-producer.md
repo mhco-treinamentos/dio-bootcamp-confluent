@@ -29,9 +29,12 @@ Configure Kafka producers for:
 
 ## Output Example
 
-```python
-"""Kafka producer for synthetic data streaming."""
+Perfil **cloud|local** selecionado por `KAFKA_PROFILE` (única env var de seleção — ver [rules.md](../../rules.md)); credenciais sempre via env vars `CC_*`/`SR_*`, nunca hardcoded:
 
+```python
+"""Kafka producer for synthetic data streaming (Confluent Cloud, local fallback)."""
+
+import os
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -43,16 +46,52 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 
 @dataclass
 class KafkaProducerConfig:
-    """Configuration for Kafka producer."""
+    """Configuration for Kafka producer.
 
-    bootstrap_servers: str = "localhost:9092"
-    schema_registry_url: str = "http://localhost:8081"
-    client_id: str = "data-gen"
+    Profile is resolved from the KAFKA_PROFILE env var: "cloud" (default,
+    Confluent Cloud via SASL_SSL) or "local" (Docker fallback, PLAINTEXT).
+    """
+
+    profile: str = os.environ.get("KAFKA_PROFILE", "cloud")
+    client_id: str = "bootcamp-gen-payments"
     acks: str = "all"
-    retries: int = 3
+    enable_idempotence: bool = True
     linger_ms: int = 5
     batch_size: int = 16384
     compression_type: str = "snappy"
+
+    def producer_config(self) -> dict:
+        """Return confluent_kafka Producer config for the active profile."""
+        base = {
+            "client.id": self.client_id,
+            "acks": self.acks,
+            "enable.idempotence": self.enable_idempotence,
+            "linger.ms": self.linger_ms,
+            "batch.size": self.batch_size,
+            "compression.type": self.compression_type,
+        }
+        if self.profile == "cloud":
+            base |= {
+                "bootstrap.servers": os.environ["CC_BOOTSTRAP"],
+                "security.protocol": "SASL_SSL",
+                "sasl.mechanisms": "PLAIN",
+                "sasl.username": os.environ["CC_API_KEY"],
+                "sasl.password": os.environ["CC_API_SECRET"],
+            }
+        else:  # local fallback — skills/confluent/local-dev-fallback.md
+            base |= {"bootstrap.servers": "localhost:9092"}
+        return base
+
+    def schema_registry_config(self) -> dict:
+        """Return SchemaRegistryClient config for the active profile."""
+        if self.profile == "cloud":
+            return {
+                "url": os.environ["SR_URL"],
+                "basic.auth.user.info": (
+                    f"{os.environ['SR_API_KEY']}:{os.environ['SR_API_SECRET']}"
+                ),
+            }
+        return {"url": "http://localhost:8081"}
 
 
 class DataGenProducer:
@@ -66,28 +105,14 @@ class DataGenProducer:
     ) -> None:
         self.topic = topic
         self.config = config or KafkaProducerConfig()
-        self.producer = self._create_producer()
+        self.producer = Producer(self.config.producer_config())
         self.serializer = self._create_serializer(avro_schema) if avro_schema else None
         self._delivered = 0
         self._failed = 0
 
-    def _create_producer(self) -> Producer:
-        """Create Kafka producer with configuration."""
-        return Producer({
-            "bootstrap.servers": self.config.bootstrap_servers,
-            "client.id": self.config.client_id,
-            "acks": self.config.acks,
-            "retries": self.config.retries,
-            "linger.ms": self.config.linger_ms,
-            "batch.size": self.config.batch_size,
-            "compression.type": self.config.compression_type,
-        })
-
     def _create_serializer(self, schema: str) -> AvroSerializer:
         """Create Avro serializer with Schema Registry."""
-        schema_registry = SchemaRegistryClient({
-            "url": self.config.schema_registry_url,
-        })
+        schema_registry = SchemaRegistryClient(self.config.schema_registry_config())
         return AvroSerializer(schema_registry, schema)
 
     def _delivery_callback(self, err, msg) -> None:
@@ -142,7 +167,7 @@ class DataGenProducer:
 ## Example Usage
 
 ```
-"Configure a Kafka producer for 1000 guias/second"
-"Setup Avro serialization with Schema Registry"
-"Create a rate-limited producer for demo streaming"
+"Configure a Kafka producer for 1000 transactions/second no Confluent Cloud"
+"Setup Avro serialization with Schema Registry (cloud profile)"
+"Create a rate-limited producer for demo streaming com KAFKA_PROFILE=local"
 ```

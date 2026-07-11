@@ -1,439 +1,172 @@
-# Confluent Platform Troubleshooting Skill
+# Confluent Cloud Troubleshooting Skill
 
 ## Skill: `/confluent-troubleshoot`
 
-Debug and resolve common issues with Confluent Platform.
+Debug de problemas comuns nos labs do bootcamp — autenticação, producers/consumers, conectores gerenciados, Schema Registry, Flink e créditos. Comandos `confluent` CLI (v4). Fallback local apenas na seção final.
 
 ## Usage
 
 ```
-/confluent-troubleshoot <issue> [options]
+/confluent-troubleshoot <issue>
 ```
 
-### Common Issues
-- `connectivity` - Network and connection issues
-- `performance` - Slow consumers/producers
-- `connector` - Kafka Connect problems
-- `schema` - Schema Registry issues
-- `rebalance` - Consumer group rebalancing
-- `disk` - Storage and retention issues
+### Issues
+- `auth` — Login, API keys, ACLs
+- `connectivity` — Producer/consumer não conecta
+- `connector` — Conector gerenciado FAILED ou sem dados
+- `schema` — Erros de compatibilidade no SR
+- `lag` — Consumer lag crescendo
+- `flink` — Statement com erro ou sem output
+- `billing` — Créditos sumindo
+- `local` — Stack local (fallback)
 
 ---
 
-## Diagnostic Commands
-
-### Check Service Health
+## Diagnóstico base (sempre começar aqui)
 
 ```bash
-# Check all containers
-docker-compose ps
-
-# Check container logs
-docker logs broker --tail 100
-docker logs connect --tail 100
-docker logs schema-registry --tail 100
-
-# Follow logs in real-time
-docker logs -f connect
-
-# Check resource usage
-docker stats
+confluent version                     # CLI v4.x?
+confluent environment list            # environment certo?
+confluent kafka cluster list          # cluster certo? status UP?
+confluent kafka cluster describe <cluster-id>   # endpoint = CC_BOOTSTRAP do .env?
+confluent api-key list --resource <cluster-id>  # key existe e pertence ao SA esperado?
 ```
 
-### Verify Connectivity
+## 1. Autenticação e ACLs
+
+**Sintomas**: `SASL authentication failed`, `TopicAuthorizationException`.
 
 ```bash
-# Test Zookeeper
-docker exec zookeeper echo ruok | nc localhost 2181
+# A API key existe e aponta para o recurso certo?
+confluent api-key list
 
-# Test Kafka broker
+# ACLs do service account do lab
+confluent kafka acl list --service-account <sa-id>
+
+# Faltou ACL? (least privilege: só o prefixo do lab)
+confluent kafka acl create --allow --service-account <sa-id> \
+  --operations write,describe --topic "dev.payments." --prefix
+```
+
+Checklist:
+- [ ] `CC_API_KEY/CC_API_SECRET` no `.env` são do **service account do lab** (não a key de admin)
+- [ ] Key criada com `--resource <cluster-id>` do cluster em uso (key de outro cluster falha auth)
+- [ ] `security.protocol=SASL_SSL`, `sasl.mechanisms=PLAIN` no client
+- [ ] Consumer também precisa de ACL no **consumer group** (`--consumer-group "bootcamp-" --prefix`)
+
+## 2. Conectividade producer/consumer
+
+```bash
+# Smoke test independente do código Python
+confluent kafka topic produce dev.payments.gen.transactions.created.v1
+confluent kafka topic consume dev.payments.gen.transactions.created.v1 --from-beginning
+```
+
+- CLI funciona e o Python não → problema no config do client (conferir perfil `KAFKA_PROFILE=cloud` e env vars de [rules.md](../../rules.md))
+- Nada funciona → rede corporativa bloqueando 9092/443? Testar `openssl s_client -connect <bootstrap-host>:9092`
+
+## 3. Conector gerenciado
+
+```bash
+confluent connect cluster list
+confluent connect cluster describe <lcc-id>      # estado + trace por task
+confluent connect event describe                 # eventos/logs
+```
+
+| Sintoma | Causa provável | Ação |
+|---------|----------------|------|
+| `FAILED` na criação | Cloud não alcança o Postgres do lab | Túnel/IP público; ver [managed-connector.md](managed-connector.md) |
+| `RUNNING` sem mensagens | Snapshot terminou e não há DML novo | Gerar transações no banco fonte |
+| Mensagens indo para DLQ | Dado incompatível com schema | `confluent kafka topic consume <dlq> --print-key` e ler headers de erro |
+| `FAILED` após funcionar | Slot de replicação removido / senha rotacionada | Recriar slot/atualizar secret + `resume` |
+
+## 4. Schema Registry
+
+**Sintoma**: `409 Conflict — incompatible schema`.
+
+```bash
+confluent schema-registry subject describe <subject>          # nível de compatibilidade
+confluent schema-registry schema describe --subject <subject> --version latest
+```
+
+Correção correta: tornar o campo novo **opcional com default** (BACKWARD). **Não** rebaixar compatibilidade para NONE nos labs — quebrar consumer é exatamente o anti-exemplo da aula. Detalhes → [schema-registry.md](schema-registry.md).
+
+## 5. Consumer lag
+
+```bash
+confluent kafka consumer group list
+confluent kafka consumer group lag describe <group>
+```
+
+Lag crescendo:
+1. Consumer vivo? (`describe` mostra membros ativos)
+2. Processamento lento → aumentar `max.poll.records`/paralelismo (até nº de partições)
+3. Rebalance frequente → `session.timeout.ms=45000`, `max.poll.interval.ms` maior
+4. Monitoração contínua via **Metrics API** (módulo 7):
+
+```bash
+curl -s https://api.telemetry.confluent.cloud/v2/metrics/cloud/query \
+  -u "$CLOUD_API_KEY:$CLOUD_API_SECRET" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "aggregations": [{"metric": "io.confluent.kafka.server/consumer_lag_offsets"}],
+    "filter": {"field": "resource.kafka.id", "op": "EQ", "value": "<cluster-id>"},
+    "group_by": ["metric.consumer_group_id"],
+    "granularity": "PT1M",
+    "intervals": ["PT1H/now"]
+  }' | jq
+```
+
+## 6. Flink
+
+```bash
+confluent flink statement list
+confluent flink statement describe <statement-name>
+confluent flink statement exception list <statement-name>   # stack trace do statement
+```
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Statement `FAILED` | SQL inválido / topic-tabela inexistente | `exception list`; conferir nome com backticks |
+| Sem output em janela | Watermark não avança (fonte parada) | Gerar eventos contínuos; conferir `watermark` da tabela |
+| Output atrasado | Watermark delay alto demais | Ajustar estratégia de watermark do lab |
+| Custo subindo | Statement esquecido RUNNING | `confluent flink statement delete` (teardown!) |
+
+## 7. Créditos sumindo (billing)
+
+```bash
+# O que está vivo agora?
+confluent flink statement list
+confluent flink compute-pool list
+confluent connect cluster list
+confluent kafka cluster list
+```
+
+Maiores ofensores: statements Flink 24/7, conectores ociosos, Tableflow habilitado e esquecido. Rodar o `teardown.sh` do lab ([cloud-setup.md](cloud-setup.md)) e conferir **Settings → Billing** na UI.
+
+---
+
+## 8. Fallback local (Docker)
+
+Só topics + Schema Registry existem localmente ([local-dev-fallback.md](local-dev-fallback.md)):
+
+```bash
+docker compose ps                                  # healthy?
+docker logs broker --tail 50
+docker logs schema-registry --tail 50
 docker exec broker kafka-broker-api-versions --bootstrap-server localhost:9092
-
-# Test Schema Registry
 curl -s http://localhost:8081/subjects | jq
 
-# Test Kafka Connect
-curl -s http://localhost:8083/connectors | jq
-
-# Test from inside container
-docker exec broker nc -zv schema-registry 8081
-docker exec connect nc -zv broker 29092
+# Reset completo (dev only)
+docker compose down -v && docker compose up -d
 ```
+
+| Sintoma local | Correção |
+|---------------|----------|
+| Broker reiniciando em loop | `docker compose down -v` (CLUSTER_ID/volume inconsistente em KRaft) |
+| Client não conecta de fora do container | Usar `localhost:9092` (listener HOST), não `broker:29092` |
+| SR 500 na subida | Broker ainda não healthy — aguardar healthcheck |
 
 ---
 
-## Common Problems & Solutions
-
-### 1. Broker Not Starting
-
-**Symptoms:**
-- Broker container keeps restarting
-- "Unable to connect to Zookeeper" errors
-
-**Diagnosis:**
-```bash
-docker logs broker 2>&1 | grep -i error
-docker exec broker cat /var/log/kafka/server.log | tail -50
-```
-
-**Solutions:**
-
-```bash
-# Check Zookeeper is healthy
-docker exec zookeeper zkServer.sh status
-
-# Verify network connectivity
-docker network inspect confluent-network
-
-# Check disk space
-docker exec broker df -h /var/lib/kafka/data
-
-# Clear corrupt data (development only!)
-docker-compose down
-docker volume rm $(docker volume ls -q | grep broker)
-docker-compose up -d
-```
-
-### 2. Connect Container Failing
-
-**Symptoms:**
-- Connect keeps restarting
-- "Worker failed to start" errors
-
-**Diagnosis:**
-```bash
-docker logs connect 2>&1 | grep -i "error\|exception" | tail -20
-docker exec connect curl -s localhost:8083/
-```
-
-**Solutions:**
-
-```bash
-# Wait for Kafka to be fully ready
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --list
-
-# Check Connect internal topics
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --describe \
-  --topic _connect-configs
-
-# Recreate Connect internal topics (if corrupted)
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --delete --topic _connect-configs
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --delete --topic _connect-offsets
-docker exec broker kafka-topics --bootstrap-server localhost:9092 --delete --topic _connect-status
-docker-compose restart connect
-```
-
-### 3. Connector in FAILED State
-
-**Symptoms:**
-- Connector shows FAILED status
-- Tasks are failing
-
-**Diagnosis:**
-```bash
-# Check connector status
-curl -s http://localhost:8083/connectors/my-connector/status | jq
-
-# Check task status
-curl -s http://localhost:8083/connectors/my-connector/tasks/0/status | jq
-
-# Get detailed error trace
-curl -s http://localhost:8083/connectors/my-connector/status | jq '.tasks[].trace'
-```
-
-**Solutions:**
-
-```bash
-# Restart the connector
-curl -X POST http://localhost:8083/connectors/my-connector/restart
-
-# Restart specific task
-curl -X POST http://localhost:8083/connectors/my-connector/tasks/0/restart
-
-# Delete and recreate
-curl -X DELETE http://localhost:8083/connectors/my-connector
-# Fix config and recreate...
-
-# Check connector plugins installed
-curl -s http://localhost:8083/connector-plugins | jq '.[].class'
-```
-
-### 4. Schema Compatibility Errors
-
-**Symptoms:**
-- 409 Conflict when registering schema
-- "Schema being registered is incompatible"
-
-**Diagnosis:**
-```bash
-# Check current compatibility level
-curl -s http://localhost:8081/config | jq
-
-# Check subject compatibility
-curl -s http://localhost:8081/config/my-topic-value | jq
-
-# Test compatibility
-curl -X POST http://localhost:8081/compatibility/subjects/my-topic-value/versions/latest \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"schema": "..."}'
-```
-
-**Solutions:**
-
-```bash
-# Temporarily disable compatibility (development only!)
-curl -X PUT http://localhost:8081/config/my-topic-value \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"compatibility": "NONE"}'
-
-# Register schema
-curl -X POST http://localhost:8081/subjects/my-topic-value/versions \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"schema": "..."}'
-
-# Re-enable compatibility
-curl -X PUT http://localhost:8081/config/my-topic-value \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"compatibility": "BACKWARD"}'
-```
-
-### 5. Consumer Lag / Slow Processing
-
-**Symptoms:**
-- Consumer lag increasing
-- Messages piling up
-
-**Diagnosis:**
-```bash
-# Check consumer group lag
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --describe --group my-group
-
-# Check partition distribution
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --describe --topic my-topic
-
-# Monitor lag over time
-watch -n 5 'docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group my-group 2>/dev/null | grep my-topic'
-```
-
-**Solutions:**
-
-```bash
-# Scale consumers (add more instances in consumer group)
-
-# Increase partitions (cannot decrease!)
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --alter --topic my-topic --partitions 12
-
-# Optimize consumer configuration
-# - Increase fetch.min.bytes
-# - Increase fetch.max.wait.ms
-# - Increase max.poll.records
-```
-
-### 6. Consumer Group Rebalancing Issues
-
-**Symptoms:**
-- Frequent rebalances
-- "Member failed to heartbeat" errors
-
-**Diagnosis:**
-```bash
-# Check group state
-docker exec broker kafka-consumer-groups --bootstrap-server localhost:9092 \
-  --describe --group my-group --state
-
-# Watch for rebalances
-docker logs broker 2>&1 | grep -i rebalance
-```
-
-**Solutions:**
-
-```bash
-# Increase session timeout
-# Consumer config: session.timeout.ms=45000
-
-# Increase heartbeat interval
-# Consumer config: heartbeat.interval.ms=15000
-
-# Use static group membership
-# Consumer config: group.instance.id=consumer-1
-
-# Increase max.poll.interval.ms if processing is slow
-# Consumer config: max.poll.interval.ms=600000
-```
-
-### 7. Disk Space Issues
-
-**Symptoms:**
-- "Log directory not found" errors
-- Topics being deleted unexpectedly
-
-**Diagnosis:**
-```bash
-# Check disk usage
-docker exec broker df -h /var/lib/kafka/data
-docker exec broker du -sh /var/lib/kafka/data/*
-
-# Check topic sizes
-docker exec broker kafka-log-dirs --bootstrap-server localhost:9092 \
-  --describe --topic-list my-topic
-```
-
-**Solutions:**
-
-```bash
-# Reduce retention
-docker exec broker kafka-configs --bootstrap-server localhost:9092 \
-  --alter --entity-type topics --entity-name my-topic \
-  --add-config retention.ms=86400000  # 1 day
-
-# Increase disk (Docker volume)
-# Modify docker-compose.yml to use larger volume
-
-# Delete old topics
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --delete --topic old-topic
-
-# Force log cleanup
-docker exec broker kafka-configs --bootstrap-server localhost:9092 \
-  --alter --entity-type topics --entity-name my-topic \
-  --add-config retention.ms=1000
-
-# Wait for cleanup, then restore
-docker exec broker kafka-configs --bootstrap-server localhost:9092 \
-  --alter --entity-type topics --entity-name my-topic \
-  --add-config retention.ms=604800000
-```
-
----
-
-## Performance Tuning
-
-### Producer Optimization
-
-```properties
-# Batch messages
-batch.size=32768
-linger.ms=20
-
-# Compression
-compression.type=snappy
-
-# Increase buffer
-buffer.memory=67108864
-
-# Acknowledgments (tradeoff: latency vs durability)
-acks=1  # or acks=all for durability
-```
-
-### Consumer Optimization
-
-```properties
-# Larger fetches
-fetch.min.bytes=50000
-fetch.max.wait.ms=500
-max.poll.records=500
-
-# Parallel processing
-# Use multiple partitions and consumers
-```
-
-### Broker Optimization
-
-```properties
-# Increase file descriptors
-ulimit -n 100000
-
-# Tune JVM
-KAFKA_HEAP_OPTS="-Xmx4G -Xms4G"
-
-# Network threads
-num.network.threads=8
-num.io.threads=16
-```
-
----
-
-## Useful Monitoring Queries
-
-### JMX Metrics (if enabled)
-
-```bash
-# Bytes in/out per second
-kafka.server:type=BrokerTopicMetrics,name=BytesInPerSec
-kafka.server:type=BrokerTopicMetrics,name=BytesOutPerSec
-
-# Request latency
-kafka.network:type=RequestMetrics,name=TotalTimeMs,request=Produce
-kafka.network:type=RequestMetrics,name=TotalTimeMs,request=FetchConsumer
-
-# Under-replicated partitions
-kafka.server:type=ReplicaManager,name=UnderReplicatedPartitions
-```
-
-### ksqlDB Monitoring
-
-```sql
--- Show running queries
-SHOW QUERIES;
-
--- Describe query
-EXPLAIN <query_id>;
-
--- Check consumer lag
-SELECT * FROM KSQL_PROCESSING_LOG EMIT CHANGES;
-```
-
----
-
-## Emergency Procedures
-
-### Complete Reset (Development Only!)
-
-```bash
-# Stop everything
-docker-compose down
-
-# Remove all volumes
-docker volume rm $(docker volume ls -q | grep -E "zookeeper|broker|connect")
-
-# Start fresh
-docker-compose up -d
-```
-
-### Recover from Broker Failure
-
-```bash
-# 1. Check which broker is down
-docker-compose ps
-
-# 2. Check for under-replicated partitions
-docker exec broker kafka-topics --bootstrap-server localhost:9092 \
-  --describe --under-replicated-partitions
-
-# 3. Restart the failed broker
-docker-compose restart broker
-
-# 4. Monitor replication
-watch -n 5 'docker exec broker kafka-topics --bootstrap-server localhost:9092 --describe --under-replicated-partitions'
-```
-
-### Export/Backup Topics
-
-```bash
-# Export to file
-docker exec broker kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic my-topic \
-  --from-beginning \
-  --property print.key=true \
-  --timeout-ms 10000 > backup.txt
-
-# Import from file
-cat backup.txt | docker exec -i broker kafka-console-producer \
-  --bootstrap-server localhost:9092 \
-  --topic my-topic-restored \
-  --property parse.key=true
-```
+**Última atualização**: 2026-07-11

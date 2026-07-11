@@ -15,7 +15,7 @@ Design schemas for:
 | Input | Required | Description |
 |-------|----------|-------------|
 | `entity` | Yes | Entity to design schema for |
-| `domain` | Yes | Domain (saude, financeiro, clinico) |
+| `domain` | Yes | Domain (payments — default do bootcamp; legacy: saude, financeiro, clinico) |
 | `format` | No | Schema format (avro, json) - default: avro |
 | `requirements` | No | Specific field requirements |
 
@@ -33,7 +33,7 @@ Design schemas for:
 {
   "type": "record",
   "name": "GuiaTISS",
-  "namespace": "com.workshop.payments.autorizacoes",
+  "namespace": "com.bootcamp.payments",
   "doc": "Guia TISS de autorização de procedimento de saúde",
   "fields": [
     {

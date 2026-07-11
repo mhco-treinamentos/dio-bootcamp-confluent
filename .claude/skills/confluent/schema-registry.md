@@ -2,7 +2,7 @@
 
 ## Skill: `/confluent-schema`
 
-Manage schemas in Confluent Schema Registry for Avro, JSON Schema, and Protobuf.
+Gerenciar schemas (Avro/JSON Schema/Protobuf) no **Schema Registry do Confluent Cloud** via CLI `confluent` (v4). Base dos Data Contracts do módulo 2. Fallback local (REST em `localhost:8081`) só onde indicado.
 
 ## Usage
 
@@ -11,309 +11,192 @@ Manage schemas in Confluent Schema Registry for Avro, JSON Schema, and Protobuf.
 ```
 
 ### Actions
-- `list` - List all subjects
-- `get <subject>` - Get schema for subject
-- `register <subject>` - Register new schema
-- `delete <subject>` - Delete subject/schema
-- `compatibility` - Check/set compatibility
-- `versions <subject>` - List schema versions
+- `list` — Listar subjects
+- `describe <subject>` — Ver schema/versões
+- `create <subject>` — Registrar schema
+- `compatibility` — Ver/definir compatibilidade
+- `delete <subject>` — Remover subject/versão
+- `exporter` — (avançado) exportar schemas entre SRs
 
 ---
 
-## Schema Types
+## Contexto e credenciais
 
-### Avro Schema Example
+```bash
+confluent environment use <env-id>
+confluent schema-registry cluster describe        # endpoint (SR_URL) + id lsrc-xxxxx
+
+# API key do SR (ver cloud-setup.md); a CLI usa o login, clients usam SR_API_KEY/SECRET
+```
+
+## Schema do bootcamp (exemplo)
+
+Namespace Avro: **`com.bootcamp.payments`**; campos sensíveis com `confluent:tags` (hook bloqueia `.avsc` sem tags — ver [rules/schemas.md](../../rules/schemas.md)).
 
 ```json
 {
   "type": "record",
-  "name": "Membro",
-  "namespace": "com.workshop.payments.beneficiarios",
+  "name": "TransactionCreated",
+  "namespace": "com.bootcamp.payments",
+  "doc": "Evento de transacao criada (PIX/cartao)",
   "fields": [
-    {"name": "membro_id", "type": "string"},
-    {"name": "cpf", "type": "string"},
-    {"name": "nome", "type": "string"},
-    {"name": "email", "type": ["null", "string"], "default": null},
-    {"name": "telefone", "type": ["null", "string"], "default": null},
-    {"name": "tipo_plano", "type": {"type": "enum", "name": "TipoPlano", "symbols": ["ENFERMARIA", "APARTAMENTO", "EXECUTIVO", "PREMIUM"]}},
-    {"name": "status_membro", "type": {"type": "enum", "name": "StatusMembro", "symbols": ["ATIVO", "SUSPENSO", "CANCELADO", "CARENCIA"]}},
-    {"name": "data_adesao", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+    {"name": "transaction_id", "type": "string"},
+    {"name": "account_id", "type": "string"},
+    {"name": "card_id", "type": ["null", "string"], "default": null},
+    {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 12, "scale": 2}, "doc": "Valor em BRL"},
+    {"name": "currency", "type": "string", "default": "BRL"},
+    {"name": "mcc", "type": ["null", "string"], "default": null},
+    {"name": "uf", "type": "string"},
+    {"name": "cpf", "type": "string", "confluent:tags": ["PII", "LGPD"]},
+    {"name": "card_pan_masked", "type": ["null", "string"], "default": null, "confluent:tags": ["PCI"]},
+    {"name": "created_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
   ]
 }
 ```
 
-### JSON Schema Example
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Membro",
-  "type": "object",
-  "properties": {
-    "membro_id": {"type": "string"},
-    "cpf": {"type": "string", "pattern": "^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$"},
-    "nome": {"type": "string"},
-    "email": {"type": "string", "format": "email"},
-    "cns": {"type": "string", "pattern": "^\\d{15}$"}
-  },
-  "required": ["membro_id", "cpf", "nome"]
-}
-```
-
-### Protobuf Schema Example
-
-```protobuf
-syntax = "proto3";
-
-package com.workshop.payments.beneficiarios;
-
-message Membro {
-  string membro_id = 1;
-  string cpf = 2;
-  string nome = 3;
-  optional string email = 4;
-  optional string telefone = 5;
-  TipoPlano tipo_plano = 6;
-  StatusMembro status_membro = 7;
-  int64 data_adesao = 8;
-}
-
-enum TipoPlano {
-  ENFERMARIA = 0;
-  APARTAMENTO = 1;
-  EXECUTIVO = 2;
-  PREMIUM = 3;
-}
-
-enum StatusMembro {
-  ATIVO = 0;
-  SUSPENSO = 1;
-  CANCELADO = 2;
-  CARENCIA = 3;
-}
-```
-
 ---
 
-## API Commands
+## Comandos (Confluent Cloud CLI)
 
-### List Subjects
-
-```bash
-# List all subjects
-curl -s http://localhost:8081/subjects | jq
-
-# List subjects with prefix
-curl -s "http://localhost:8081/subjects?subjectPrefix=membros" | jq
-```
-
-### Get Schema
+### Listar / inspecionar
 
 ```bash
-# Get latest schema for subject
-curl -s http://localhost:8081/subjects/membros-value/versions/latest | jq
+confluent schema-registry subject list
+confluent schema-registry subject list --prefix "dev.payments"
 
-# Get specific version
-curl -s http://localhost:8081/subjects/membros-value/versions/1 | jq
+# Últimas versões de um subject
+confluent schema-registry schema describe \
+  --subject dev.payments.gen.transactions.created.v1-value \
+  --version latest
 
-# Get schema by ID
-curl -s http://localhost:8081/schemas/ids/1 | jq
-
-# List all versions
-curl -s http://localhost:8081/subjects/membros-value/versions | jq
+confluent schema-registry schema list \
+  --subject-prefix dev.payments.gen.transactions.created.v1-value
 ```
 
-### Register Schema
+### Registrar
 
 ```bash
-# Register Avro schema
-curl -X POST http://localhost:8081/subjects/membros-value/versions \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{
-    "schema": "{\"type\":\"record\",\"name\":\"Membro\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"},{\"name\":\"nome\",\"type\":\"string\"}]}"
-  }'
+# Avro (arquivo .avsc versionado em repo/shared/schemas/payments/)
+confluent schema-registry schema create \
+  --subject dev.payments.gen.transactions.created.v1-value \
+  --schema ./shared/schemas/payments/transaction_created.avsc \
+  --type avro
 
-# Register JSON schema
-curl -X POST http://localhost:8081/subjects/guias-value/versions \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{
-    "schemaType": "JSON",
-    "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"valor_autorizado\":{\"type\":\"number\"}}}"
-  }'
-
-# Register Protobuf schema
-curl -X POST http://localhost:8081/subjects/events-value/versions \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{
-    "schemaType": "PROTOBUF",
-    "schema": "syntax = \"proto3\"; message Event { string id = 1; string type = 2; }"
-  }'
+# JSON Schema / Protobuf
+confluent schema-registry schema create --subject <subject> --schema ./schema.json --type json
+confluent schema-registry schema create --subject <subject> --schema ./schema.proto --type protobuf
 ```
 
-### Delete Schema
+### Compatibilidade
 
 ```bash
-# Soft delete subject (all versions)
-curl -X DELETE http://localhost:8081/subjects/membros-value
+# Ver config global e por subject
+confluent schema-registry configuration describe
+confluent schema-registry subject describe dev.payments.gen.transactions.created.v1-value
 
-# Soft delete specific version
-curl -X DELETE http://localhost:8081/subjects/membros-value/versions/1
-
-# Hard delete (permanent)
-curl -X DELETE "http://localhost:8081/subjects/membros-value?permanent=true"
-
-# Hard delete specific version
-curl -X DELETE "http://localhost:8081/subjects/membros-value/versions/1?permanent=true"
+# Definir BACKWARD (default do bootcamp — Curso 2, Aula 3)
+confluent schema-registry subject update dev.payments.gen.transactions.created.v1-value \
+  --compatibility backward
 ```
 
----
-
-## Compatibility Management
-
-### Compatibility Levels
-
-| Level | Description |
+| Nível | Significado |
 |-------|-------------|
-| `BACKWARD` | New schema can read data written by old schema |
-| `BACKWARD_TRANSITIVE` | Backward compatible with all previous versions |
-| `FORWARD` | Old schema can read data written by new schema |
-| `FORWARD_TRANSITIVE` | Forward compatible with all previous versions |
-| `FULL` | Both backward and forward compatible |
-| `FULL_TRANSITIVE` | Full compatibility with all previous versions |
-| `NONE` | No compatibility checking |
+| `BACKWARD` | Schema novo lê dados do schema antigo (**default do bootcamp**) |
+| `BACKWARD_TRANSITIVE` | Backward contra todas as versões |
+| `FORWARD` / `FORWARD_TRANSITIVE` | Schema antigo lê dados do novo |
+| `FULL` / `FULL_TRANSITIVE` | Ambos |
+| `NONE` | Sem verificação — proibido nos labs |
 
-### Check/Set Compatibility
+### Deletar (teardown / correções)
 
 ```bash
-# Get global compatibility level
-curl -s http://localhost:8081/config | jq
+# Soft delete (recuperável)
+confluent schema-registry schema delete \
+  --subject dev.payments.gen.transactions.created.v1-value --version latest
 
-# Set global compatibility level
-curl -X PUT http://localhost:8081/config \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"compatibility": "BACKWARD"}'
-
-# Get subject compatibility level
-curl -s http://localhost:8081/config/membros-value | jq
-
-# Set subject compatibility level
-curl -X PUT http://localhost:8081/config/membros-value \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"compatibility": "FULL"}'
-
-# Test compatibility before registering
-curl -X POST http://localhost:8081/compatibility/subjects/membros-value/versions/latest \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"schema": "{...}"}'
+# Hard delete (permanente — só em teardown de lab)
+confluent schema-registry schema delete \
+  --subject dev.payments.gen.transactions.created.v1-value --version all --permanent
 ```
 
 ---
 
-## Schema Evolution Best Practices
+## Evolução de schema (BACKWARD)
 
-### Backward Compatible Changes (Safe)
-- Add optional field with default value
-- Remove field (if consumers don't require it)
-- Change field to union with null
+### Mudanças seguras
+- Adicionar campo **opcional com default** (`["null", "string"], "default": null`)
+- Remover campo que tinha default
+- Alargar união para incluir `null`
 
-### Breaking Changes (Avoid)
-- Remove required field
-- Change field type
-- Rename field
-- Add required field without default
+### Breaking (bloqueadas pelo SR em BACKWARD)
+- Adicionar campo obrigatório sem default
+- Mudar tipo de campo / renomear campo
+- Remover campo obrigatório
 
-### Example: Safe Evolution
-
-**Version 1:**
 ```json
-{
-  "type": "record",
-  "name": "Membro",
-  "fields": [
-    {"name": "id", "type": "string"},
-    {"name": "nome", "type": "string"}
-  ]
-}
+// v1 → v2 backward-compatible: novo campo opcional
+{"name": "fraud_score", "type": ["null", "double"], "default": null}
 ```
 
-**Version 2 (Backward Compatible):**
-```json
-{
-  "type": "record",
-  "name": "Membro",
-  "fields": [
-    {"name": "id", "type": "string"},
-    {"name": "nome", "type": "string"},
-    {"name": "email", "type": ["null", "string"], "default": null}
-  ]
-}
-```
+Lab do módulo 2: registrar v1, produzir, registrar v2 com campo novo, mostrar consumer antigo continuando a funcionar; depois tentar mudança breaking e ver o **409** do SR.
 
 ---
 
-## Python Client Example
+## Cliente Python (perfil cloud|local)
 
 ```python
-from confluent_kafka.schema_registry import SchemaRegistryClient
-from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserializer
+import os
 
-# Connect to Schema Registry
-schema_registry_conf = {'url': 'http://localhost:8081'}
-schema_registry_client = SchemaRegistryClient(schema_registry_conf)
+from confluent_kafka.schema_registry import Schema, SchemaRegistryClient
 
-# Register schema
-schema_str = """
-{
-  "type": "record",
-  "name": "Membro",
-  "fields": [
-    {"name": "id", "type": "string"},
-    {"name": "nome", "type": "string"}
-  ]
-}
-"""
-from confluent_kafka.schema_registry import Schema
-schema = Schema(schema_str, "AVRO")
-schema_id = schema_registry_client.register_schema("membros-value", schema)
+if os.environ.get("KAFKA_PROFILE", "cloud") == "cloud":
+    sr_conf = {
+        "url": os.environ["SR_URL"],
+        "basic.auth.user.info": f"{os.environ['SR_API_KEY']}:{os.environ['SR_API_SECRET']}",
+    }
+else:  # fallback local — ver local-dev-fallback.md
+    sr_conf = {"url": "http://localhost:8081"}
 
-# Create serializer/deserializer
-avro_serializer = AvroSerializer(schema_registry_client, schema_str)
-avro_deserializer = AvroDeserializer(schema_registry_client)
+sr_client = SchemaRegistryClient(sr_conf)
+
+with open("shared/schemas/payments/transaction_created.avsc") as f:
+    schema = Schema(f.read(), "AVRO")
+schema_id = sr_client.register_schema(
+    "dev.payments.gen.transactions.created.v1-value", schema
+)
 ```
 
 ---
 
-## Subject Naming Strategies
+## Subject naming strategies
 
-| Strategy | Pattern | Example |
-|----------|---------|---------|
-| TopicNameStrategy | `<topic>-key`, `<topic>-value` | `membros-value` |
-| RecordNameStrategy | `<namespace>.<record>` | `com.workshop.payments.Membro` |
-| TopicRecordNameStrategy | `<topic>-<namespace>.<record>` | `membros-com.workshop.payments.Membro` |
-
-### Configure in Connect
-
-```json
-{
-  "value.converter.schema.registry.url": "http://schema-registry:8081",
-  "value.converter.subject.name.strategy": "io.confluent.kafka.serializers.subject.TopicNameStrategy"
-}
-```
+| Strategy | Padrão | Uso no bootcamp |
+|----------|--------|-----------------|
+| TopicNameStrategy | `<topic>-key` / `<topic>-value` | **Default — usar sempre** |
+| RecordNameStrategy | `<namespace>.<record>` | Só se múltiplos tipos por topic |
+| TopicRecordNameStrategy | `<topic>-<namespace>.<record>` | Idem |
 
 ---
+
+## Fallback local (REST, sem auth)
+
+```bash
+curl -s http://localhost:8081/subjects | jq
+curl -s http://localhost:8081/subjects/<subject>/versions/latest | jq
+curl -X POST http://localhost:8081/subjects/<subject>/versions \
+  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+  -d '{"schema": "..."}'
+```
 
 ## Troubleshooting
 
-### Common Errors
+| Erro | Causa | Correção |
+|------|-------|----------|
+| `409 Conflict` | Schema incompatível com BACKWARD | Tornar o campo opcional com default; nunca baixar para NONE nos labs |
+| `404 Subject not found` | Nome errado ou soft-deleted | `subject list`; conferir sufixo `-value` |
+| `422 Invalid schema` | Sintaxe Avro inválida | Validar o `.avsc` (o hook de PII também valida estrutura) |
+| `401/403` no client | `SR_API_KEY/SECRET` errados ou de outro environment | Recriar key contra o `lsrc-` correto |
 
-1. **409 Conflict - Incompatible schema**
-   - Check compatibility settings
-   - Test compatibility before registering
+---
 
-2. **404 Not Found - Subject not found**
-   - Verify subject name
-   - Check if schema was soft-deleted
-
-3. **422 Unprocessable Entity - Invalid schema**
-   - Validate schema syntax
-   - Check for missing required fields
+**Última atualização**: 2026-07-11

@@ -27,18 +27,18 @@ Create documentation for:
 ## Output
 
 ```markdown
-# GuiaGenerator
+# TransactionGenerator
 
-Generate synthetic guia TISS records with realistic patterns.
+Generate synthetic payment transaction records with realistic patterns.
 
 ## Usage
 
 ```python
-from generators.saude import GuiaGenerator
+from generators.payments import TransactionGenerator
 
-gen = GuiaGenerator(seed=42)
-for guia in gen.generate(1000):
-    print(guia)
+gen = TransactionGenerator(seed=42)
+for transaction in gen.generate(1000):
+    print(transaction)
 ```
 
 ## Configuration
@@ -52,13 +52,13 @@ for guia in gen.generate(1000):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `guia_id` | string | Unique identifier (UUID) |
-| `valor_autorizado` | decimal | Valor autorizado em BRL |
+| `transaction_id` | string | Unique identifier (UUID) |
+| `amount` | decimal | Valor da transação em BRL |
 ```
 
 ## Example Usage
 
 ```
-"Document the GuiaGenerator class"
-"Generate README for the saude generators module"
+"Document the TransactionGenerator class"
+"Generate README for the payments generators module"
 ```

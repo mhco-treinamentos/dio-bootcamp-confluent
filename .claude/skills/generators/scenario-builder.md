@@ -4,17 +4,17 @@
 
 ## Purpose
 
-Create complete scenario classes that orchestrate multiple generators, behavioral patterns, and poison pills into coherent datasets. Scenarios are the top-level entry point for data generation — they define **what** gets generated, in **what order**, with **what behaviors**, and to **which sinks**.
+Create complete scenario classes that orchestrate multiple generators, behavioral patterns, and poison pills into coherent datasets. Scenarios are the top-level entry point for data generation for the **labs por módulo** do bootcamp (e para as camadas do desafio final) — they define **what** gets generated, in **what order**, with **what behaviors**, and to **which sinks** (Kafka via profile cloud|local, Postgres CDC source, JSON).
 
 ## Inputs
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `scenario_name` | Yes | Name of the scenario (e.g., DataQuality, RealisticHealthInsurance) |
+| `scenario_name` | Yes | Name of the scenario (e.g., DataQuality, RealisticPayments, FraudDetection) |
 | `entities` | Yes | List of entities to generate |
 | `patterns` | No | Behavioral patterns to apply (recurring, seasonal, glosa, etc.) |
 | `poison_pills` | No | PoisonPillConfig for data quality injection |
-| `labels` | No | Ground truth labels to generate (glosa, fraude, sinistralidade) |
+| `labels` | No | Ground truth labels to generate (fraud rule triggered, approval outcome) |
 | `sinks` | No | Target sinks (kafka, postgres, json, console) |
 
 ## Process
@@ -229,8 +229,8 @@ VOLUME_RATIOS = {
 ## Example Usage
 
 ```
-"Use scenario-builder to create a DataQualityScenario with all 12 poison types"
-"Build a RealisticHealthInsuranceScenario with recurring consultas and seasonal internacoes"
-"Create a GlosaDetectionScenario with glosa lifecycle patterns"
+"Use scenario-builder to create a DataQualityScenario with all 12 poison types para o lab de DLQ do módulo 3"
+"Build a RealisticPaymentsScenario with bimodal transaction hours and Pareto accounts"
+"Create a FraudDetectionScenario with velocity and geo-impossible patterns para o lab do módulo 4"
 "Design a scenario for testing Kafka deduplication with duplicate poison pills"
 ```

@@ -6,8 +6,8 @@
 
 - Python 3.11+
 - `faker`, `confluent-kafka`, `confluent-kafka[avro]` instalados
-- Entidade alvo identificada (`Conta`, `Cartao`, `Transacao`, `EventoFraude`, etc.)
-- Edição da tour onde o gerador vai morar (no momento: `data-streaming-tour-2026/`)
+- Entidade alvo identificada (`Account`, `Card`, `Transaction`, `FraudEvent`, etc.)
+- Geradores vivem em `repo/shared/generators/` (reuso entre labs e Desafio Final)
 
 ---
 
@@ -18,11 +18,11 @@
 - Quais campos são obrigatórios? Quais são opcionais?
 - Que relacionamentos tem com outras entidades? (Ex: `Transacao` referencia `Cartao` que referencia `Conta`)
 - Que distribuições estatísticas usar? (Ver [.claude/rules.md](../rules.md) seção "Domain Rules — Payments" para defaults: log-normal de valor, Pareto de merchants, bimodal de horário, etc.)
-- Que volume é esperado nas cenas?
+- Que volume é esperado nos labs? (Limite: >10k registros por seção queima tempo e créditos)
 - Que campos são PII/PCI? (Ver [.claude/rules/schemas.md](../rules/schemas.md))
 
 ### 1.2 — Revisar geradores existentes
-- Inspecionar `data-streaming-tour-2026/shared/generators/payments/`
+- Inspecionar `repo/shared/generators/payments/`
 - Há `BaseGenerator` ABC para herdar?
 - Há `FakerPool` ou utilitários comuns que valem reuso? (`brazilian_formats.py`)
 
@@ -40,8 +40,8 @@
 ```json
 {
   "type": "record",
-  "name": "Transacao",
-  "namespace": "com.workshop.payments.transacoes",
+  "name": "Transaction",
+  "namespace": "com.bootcamp.payments.transactions",
   "doc": "Transação financeira emitida por um cartão",
   "fields": [
     {"name": "event_id", "type": "string"},
@@ -62,7 +62,7 @@
 ```
 
 Regras de schema obrigatórias (ver [.claude/rules/schemas.md](../rules/schemas.md)):
-- Namespace: `com.workshop.payments.<subdomínio>`
+- Namespace: `com.bootcamp.payments.<subdomínio>`
 - Money fields: sempre `bytes` + `decimal` logical type, **nunca** `double`/`float`
 - Status/tipo: sempre `enum`, nunca string crua
 - PII/PCI: taggear com `confluent:tags` — o hook `validate-avro-pii.sh` bloqueia o save se faltar
@@ -70,7 +70,7 @@ Regras de schema obrigatórias (ver [.claude/rules/schemas.md](../rules/schemas.
 ### 2.2 — Desenhar a classe
 
 ```
-TransacaoGenerator(BaseGenerator)
+TransactionGenerator(BaseGenerator)
 ├── __init__(seed: int = 42, locale: str = "pt_BR")
 ├── generate(count: int) -> Iterator[dict]
 ├── _generate_single() -> dict
@@ -91,10 +91,10 @@ TransacaoGenerator(BaseGenerator)
 
 ### 3.1 — Criar o arquivo do gerador
 
-**Local**: `data-streaming-tour-2026/shared/generators/payments/transacoes.py`
+**Local**: `repo/shared/generators/payments/transactions.py`
 
 ```python
-"""Gerador de Transacao sintética (payments)."""
+"""Gerador de Transaction sintética (payments)."""
 from __future__ import annotations
 
 import logging
@@ -110,17 +110,17 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class TransacaoGeneratorConfig:
+class TransactionGeneratorConfig:
     seed: int = 42
     locale: str = "pt_BR"
     amount_median_brl: Decimal = Decimal("80.00")
 
 
-class TransacaoGenerator(BaseGenerator):
+class TransactionGenerator(BaseGenerator):
     """Gera transações sintéticas com padrões realistas de pagamentos brasileiros."""
 
-    def __init__(self, config: TransacaoGeneratorConfig | None = None) -> None:
-        self.config = config or TransacaoGeneratorConfig()
+    def __init__(self, config: TransactionGeneratorConfig | None = None) -> None:
+        self.config = config or TransactionGeneratorConfig()
         self.fake = Faker(self.config.locale)
         Faker.seed(self.config.seed)
 
@@ -146,18 +146,18 @@ class TransacaoGenerator(BaseGenerator):
 
 ### 3.2 — Adicionar testes
 
-**Local**: `data-streaming-tour-2026/tests/generators/test_transacoes.py`
+**Local**: `repo/tests/generators/test_transactions.py`
 
 ```python
-"""Testes do TransacaoGenerator."""
+"""Testes do TransactionGenerator."""
 from decimal import Decimal
 
-from shared.generators.payments.transacoes import TransacaoGenerator, TransacaoGeneratorConfig
+from shared.generators.payments.transactions import TransactionGenerator, TransactionGeneratorConfig
 
 
-class TestTransacaoGenerator:
+class TestTransactionGenerator:
     def test_generates_valid_records(self) -> None:
-        gen = TransacaoGenerator(TransacaoGeneratorConfig(seed=42))
+        gen = TransactionGenerator(TransactionGeneratorConfig(seed=42))
         records = list(gen.generate(100))
         assert len(records) == 100
         for r in records:
@@ -166,18 +166,18 @@ class TestTransacaoGenerator:
             assert len(r["mcc"]) == 4
 
     def test_deterministic_with_seed(self) -> None:
-        gen1 = TransacaoGenerator(TransacaoGeneratorConfig(seed=42))
-        gen2 = TransacaoGenerator(TransacaoGeneratorConfig(seed=42))
+        gen1 = TransactionGenerator(TransactionGeneratorConfig(seed=42))
+        gen2 = TransactionGenerator(TransactionGeneratorConfig(seed=42))
         assert list(gen1.generate(10)) == list(gen2.generate(10))
 ```
 
 ### 3.3 — Exportar do módulo
 
-`data-streaming-tour-2026/shared/generators/payments/__init__.py`:
+`repo/shared/generators/payments/__init__.py`:
 ```python
-from .transacoes import TransacaoGenerator, TransacaoGeneratorConfig
+from .transactions import TransactionGenerator, TransactionGeneratorConfig
 
-__all__ = ["TransacaoGenerator", "TransacaoGeneratorConfig"]
+__all__ = ["TransactionGenerator", "TransactionGeneratorConfig"]
 ```
 
 ---
@@ -186,12 +186,12 @@ __all__ = ["TransacaoGenerator", "TransacaoGeneratorConfig"]
 
 ### 4.1 — Rodar testes
 ```bash
-pytest data-streaming-tour-2026/tests/generators/test_transacoes.py -v
+pytest repo/tests/generators/test_transactions.py -v
 ```
 
 ### 4.2 — Profile dos dados
 ```python
-gen = TransacaoGenerator(TransacaoGeneratorConfig(seed=42))
+gen = TransactionGenerator(TransactionGeneratorConfig(seed=42))
 records = list(gen.generate(1000))
 # Verifique: distribuição de amount (log-normal), distribuição de MCC (Pareto),
 # uniqueness de transaction_id, NULL em campos opcionais
@@ -206,7 +206,7 @@ records = list(gen.generate(1000))
 - [ ] Edge cases tratados (status NEGADA, estorno, MCC raro)
 
 ### 4.4 — Validar Avro schema
-- Save do `.avsc` em `data-streaming-tour-2026/shared/schemas/payments/transacao.avsc`
+- Save do `.avsc` em `repo/shared/schemas/payments/transaction.avsc`
 - O hook [validate-avro-pii.sh](../hooks/validate-avro-pii.sh) bloqueia se houver campo sensível sem `confluent:tags`
 
 ---
@@ -227,7 +227,7 @@ records = list(gen.generate(1000))
 ## Exemplo de uso
 
 ```
-"Siga new-generator para criar um EventoFraudeGenerator que produza
+"Siga new-generator para criar um FraudEventGenerator que produza
 eventos de regra disparada (RULE_VELOCITY, RULE_GEO_IMPOSSIBLE) com
 distribuição realista de 1% das transações"
 ```

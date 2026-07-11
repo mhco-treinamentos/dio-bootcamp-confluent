@@ -1,6 +1,6 @@
-# Workflows — data-streaming-tour
+# Workflows — Bootcamp Confluent Cloud 2026
 
-> **Sistema RESEARCH → PLAN → ACT → VALIDATE para construir cenas e geradores do workshop.**
+> **Sistema RESEARCH → PLAN → ACT → VALIDATE para construir labs e geradores do bootcamp.**
 
 ## Visão geral
 
@@ -14,39 +14,40 @@ Toda tarefa não-trivial segue este fluxo de 4 fases:
      ▼               ▼               ▼               ▼
  • References    • Todo list     • Gerador       • Tests
  • Agents        • Arquitetura   • CDC config    • Schema check
- • Pesquisa      • Aprovação     • Flink SQL     • E2E (cena
-                                 • Iceberg sink    completa)
+ • Pesquisa      • Aprovação     • Flink SQL     • E2E (lab
+                                 • Tableflow       completo)
 ```
 
 ## Fases
 
 ### RESEARCH ([research.md](research.md))
-- Coletar requisitos da cena (objetivo pedagógico, duração alvo, pré-requisitos)
-- Consultar [references/](../references/) — Oracle CDC, formatos brasileiros, padrões Faker
-- Engajar agents de domínio (`oracle-cdc-expert`, `flink-self-managed-expert`, `iceberg-expert`, `trino-expert`)
-- Inspecionar topics, schemas e estrutura de cenas anteriores antes de propor novas
+- Coletar requisitos do lab (objetivo pedagógico, duração alvo, pré-requisitos)
+- Consultar [references/](../references/) — CDC/Connect, formatos brasileiros, padrões Faker
+- Engajar agents de domínio (`connect-cdc-expert`, `flink-confluent-expert`, `tableflow-lakehouse-expert`, `realtime-ai-expert`)
+- Inspecionar topics, schemas e estrutura de labs anteriores antes de propor novos
 
 ### PLAN ([plan.md](plan.md))
-- Desenhar a solução (topology, watermarks, TTL, particionamento Iceberg)
-- Criar todo list e capturar riscos (tempo da cena, RAM, falhas comuns)
+- Desenhar a solução (topology, watermarks, TTL, particionamento)
+- Criar todo list e capturar riscos (tempo do lab, custo de créditos, falhas comuns)
 - Obter aprovação do usuário em decisões de design
-- Definir critério de sucesso e fluxo de recuperação (cleanup commands)
+- Definir critério de sucesso e fluxo de recuperação (teardown commands)
 
 ### ACT ([act.md](act.md))
-- Implementar geradores Python para payments (em `<edicao>/shared/generators/payments/`)
-- Criar schemas Avro com namespace `com.workshop.payments.*` e tags PII/PCI
-- Configurar Oracle CDC (supplemental logging, Debezium config, SMTs)
-- Construir jobs Flink SQL (watermark, state TTL, checkpoint)
-- Escrever Iceberg sink + queries Trino para validação
+- Implementar geradores Python para payments (em `repo/shared/generators/payments/`)
+- Criar schemas Avro com namespace `com.bootcamp.payments.*` e tags PII/PCI
+- Configurar CDC (Postgres fonte, connector Debezium gerenciado, SMTs)
+- Construir statements Flink SQL (watermark, state TTL, janelas)
+- Habilitar Tableflow + validar consumo via catálogo
 - Escrever testes pytest + fixtures determinísticas (`seed=42`)
-- Documentar a cena: objetivo, comandos, output esperado, validação, cleanup
+- Documentar o lab: objetivo, comandos, output esperado, validação, teardown
 
 ### VALIDATE ([validate.md](validate.md))
-- Rodar pytest com coverage (≥80% em código compartilhado da edição)
+- Rodar pytest com coverage (≥80% em código compartilhado)
 - Validar compatibilidade Avro (BACKWARD)
-- Testar latência end-to-end e exactly-once
+- Testar latência end-to-end e semânticas de entrega
 - Verificar conformidade LGPD/PCI-DSS (Avro tags via hook `validate-avro-pii.sh`)
-- Cronometrar a cena real para confirmar caber no budget (regra em `rules/workshop.md`)
+- Cronometrar o lab real para confirmar caber no budget (regra em `rules/labs.md`)
+- Executar teardown e confirmar que nenhum recurso cloud ficou ativo
 
 ## Quick tasks
 

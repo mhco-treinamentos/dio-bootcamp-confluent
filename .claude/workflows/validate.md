@@ -270,7 +270,7 @@ Reporting:
 Using compliance-checker skill with LGPD rules:
 
 PII/PHI Protection:
-- [ ] PII fields identified and tagged (CPF, CNS, NOME)
+- [ ] PII fields identified and tagged (CPF, CNPJ, NOME)
 - [ ] PHI fields identified and tagged (CID_10, PROCEDIMENTOS)
 - [ ] Tokenization/encryption applied
 - [ ] Access controls in place

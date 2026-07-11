@@ -27,7 +27,7 @@ Real-world data pipelines must handle dirty data. Poison pills are intentionally
 
 ## 1. Duplicate Events
 
-**What**: Same record emitted twice with identical `guia_id` and payload.
+**What**: Same record emitted twice with identical `transaction_id` and payload.
 
 **Why it happens**: Producer retries (`acks=all` + network timeout), consumer rebalance before offset commit, CDC connector restart.
 
@@ -41,7 +41,7 @@ def inject_duplicate(record: T) -> T:
 
 **Kafka behavior**: Two messages with same key on same partition. Consumer sees both.
 
-**Pipeline test**: Does `SELECT DISTINCT guia_id` or Flink dedup window catch it?
+**Pipeline test**: Does `SELECT DISTINCT transaction_id` or Flink dedup window catch it?
 
 **Variation — Near-duplicate**: Same ID but slightly different timestamp (±1s). Tests whether dedup is ID-based or hash-based.
 
@@ -58,7 +58,7 @@ def inject_near_duplicate(record: T) -> T:
 
 **What**: Event with `event_time` in the past but arriving at `processing_time` = now.
 
-**Why it happens**: Hospital system offline sync, batch file from prestador delayed, partner system downtime, network partition.
+**Why it happens**: POS terminal offline sync, batch file from adquirente delayed, partner system downtime, network partition.
 
 **Injection rate**: 5% (moderate), 10% (aggressive)
 
@@ -123,10 +123,10 @@ def inject_schema_evolution(record: T, new_fields: dict) -> dict:
     data.update(new_fields)
     return data
 
-# Example: adding telemedicina flag mid-stream
+# Example: adding fraud_score mid-stream (modulo 6 preview)
 SCHEMA_V2_FIELDS = {
-    "telemedicina": lambda: random.choice([True, False]),
-    "canal_solicitacao": lambda: random.choice(["PORTAL", "APP", "TELEFONE"]),
+    "fraud_score": lambda: round(random.random(), 4),
+    "canal_origem": lambda: random.choice(["APP", "SITE", "POS", "ATM"]),
     "_schema_version": lambda: "v2",
 }
 ```
@@ -146,10 +146,10 @@ SCHEMA_V2_FIELDS = {
 ```python
 # Fields safe to nullify (won't break FK integrity)
 NULLABLE_FIELDS = {
-    "Guia": ["cid_10", "senha_autorizacao", "valor_executado"],
-    "Membro": ["email", "telefone", "complemento"],
-    "Prestador": ["crm", "complemento"],
-    "Mensalidade": ["dt_pagamento"],
+    "Transaction": ["merchant_id", "decline_reason", "settled_at"],
+    "Customer": ["email", "telefone", "complemento"],
+    "Merchant": ["complemento"],
+    "Refund": ["initiated_by", "settled_at"],
 }
 
 def inject_null_field(record: T, entity_type: str) -> T:
@@ -181,10 +181,10 @@ MALFORMATIONS = {
         "000.000.000-00",            # all zeros
         "12345678900",               # unformatted (may be valid)
     ],
-    "cns": [
-        "000000000000000",           # all zeros
+    "cnpj": [
+        "00000000000000",            # all zeros
         "12345",                      # too short
-        "ABCDEFGHIJKLMNO",          # letters
+        "12.345.678/0001-00",        # invalid check digit
     ],
     "cep": [
         "000",                        # too short
@@ -197,20 +197,20 @@ MALFORMATIONS = {
         "spaces in@email.com",
         "",                           # empty string
     ],
-    "valor": [
-        Decimal("-999.99"),           # negative procedure value
+    "amount": [
+        Decimal("-999.99"),           # negative transaction value
         Decimal("0"),                 # zero (might be valid)
         Decimal("99999999.99"),       # exceeds precision
     ],
-    "numero_guia": [
-        "ABC1234567",                # letters in guide number
-        "123",                        # too short
+    "pan_masked": [
+        "4017123412341234",          # CLEARTEXT PAN — must be blocked, never reach topic
+        "40171234******",            # missing last4
         "",                           # empty
     ],
-    "codigo_tuss": [
+    "mcc": [
         "INVALID",                   # non-numeric
-        "999",                        # too short
-        "00000000",                  # all zeros
+        "99",                         # too short
+        "0000",                      # all zeros
     ],
     "phone": [
         "0000000000",                # all zeros
@@ -247,12 +247,11 @@ def inject_orphan(record: T, fk_field: str) -> T:
 
 # FK fields by entity
 FK_FIELDS = {
-    "Guia": "membro_id",
-    "GuiaItem": "guia_id",
-    "Mensalidade": "membro_id",
-    "Dependente": "titular_id",
-    "Fatura": "prestador_id",
-    "Contrato": "prestador_id",
+    "Transaction": "account_id",
+    "Refund": "transaction_id",
+    "Card": "account_id",
+    "Account": "customer_id",
+    "FraudAlert": "account_id",
 }
 ```
 
@@ -270,19 +269,19 @@ FK_FIELDS = {
 
 ```python
 EXTREME_VALUES = {
-    "valor_autorizado": [
+    "amount": [
         Decimal("0.01"),              # minimum
-        Decimal("999999.99"),         # R$ 1M procedure
+        Decimal("999999.99"),         # R$ 1M transaction (way beyond domain max)
         Decimal("0.001"),             # sub-centavo (precision issue)
-        Decimal("500000.00"),         # extremely high single procedure
+        Decimal("500000.00"),         # extremely high single transaction
     ],
-    "valor_mensalidade": [
-        Decimal("0.01"),              # near-zero premium
-        Decimal("50000.00"),          # R$ 50K premium (extreme)
+    "refund_amount": [
+        Decimal("0.01"),              # near-zero refund
+        Decimal("50000.00"),          # refund > original amount (must be caught)
     ],
-    "quantidade": [0, 999],           # zero or impossibly many procedures
-    "dias_internacao": [0, 365],      # zero or year-long hospitalization
-    "idade_beneficiario": [0, 120],   # newborn or impossibly old
+    "credit_limit": [Decimal("0"), Decimal("10000000.00")],  # zero or absurd limit
+    "installments": [0, 99],          # zero or impossibly many parcelas
+    "idade_cliente": [0, 120],        # menor de idade ou impossivelmente velho
 }
 ```
 
@@ -294,7 +293,7 @@ EXTREME_VALUES = {
 
 **What**: Timestamp in wrong timezone (UTC when BRT expected, or vice versa).
 
-**Why it happens**: Server timezone misconfiguration, hospital system sending local time, system migration.
+**Why it happens**: Server timezone misconfiguration, POS/adquirente sending local time, system migration.
 
 **Injection rate**: 1% (moderate), 3% (aggressive)
 
@@ -311,30 +310,28 @@ def inject_timezone_mismatch(record: T) -> T:
 
 ---
 
-## 10. Retroactive Corrections (Estornos / Glosas)
+## 10. Retroactive Corrections (Estornos / Chargebacks)
 
 **What**: Corrected version of a previously processed record arrives.
 
-**Why it happens**: Glosa (claim denial), recurso de glosa (appeal), auditoria médica correction, reconciliation adjustment.
+**Why it happens**: Estorno (refund), chargeback dispute, reconciliation adjustment, adquirente correction file.
 
-**Injection rate**: 1-3% of guias
+**Injection rate**: 1-3% of settled transactions
 
 ```python
-def inject_correction(record: T) -> T:
-    """Emit corrected version of previously sent record."""
+def inject_full_refund(record: T) -> T:
+    """Emit corrected version of previously settled transaction."""
     clone = copy.deepcopy(record)
-    # Partial correction (e.g., valor_autorizado reduced by glosa)
-    clone.valor_autorizado = clone.valor_autorizado * Decimal(str(random.uniform(0.5, 0.95)))
-    clone.status = "GLOSADA"
+    clone.status = "REFUNDED"
     clone.updated_at = datetime.now()
     return clone
 
-def inject_glosa_parcial(record: T) -> T:
-    """Emit partial glosa — reduce executed value."""
+def inject_partial_refund(record: T) -> T:
+    """Emit partial refund — reduce settled amount."""
     clone = copy.deepcopy(record)
-    clone.valor_glosa = clone.valor_executado * Decimal(str(random.uniform(0.10, 0.40)))
-    clone.valor_executado = clone.valor_executado - clone.valor_glosa
-    clone.status = "GLOSADA"
+    refund = clone.amount * Decimal(str(random.uniform(0.10, 0.40)))
+    clone.refund_amount = refund.quantize(Decimal("0.01"))
+    clone.status = "PARTIALLY_REFUNDED"
     clone.updated_at = datetime.now()
     return clone
 ```
@@ -347,23 +344,23 @@ def inject_glosa_parcial(record: T) -> T:
 
 **What**: Message with key but null value (Kafka compacted topic convention).
 
-**Why it happens**: Member cancellation, LGPD deletion request (direito ao esquecimento), entity end-of-life.
+**Why it happens**: Account closure, LGPD deletion request (direito ao esquecimento), entity end-of-life.
 
 **Injection rate**: 0.5% (moderate), 2% (aggressive)
 
 ```python
 def inject_tombstone(record: T) -> dict:
     """Null-payload message for compacted topic deletion."""
-    key = extract_key(record)  # e.g., membro_id
+    key = extract_key(record)  # e.g., account_id
     return {
         "key": key,
         "value": None,
         "headers": {
-            "ce_type": "membro.cancelado",
+            "ce_type": "account.closed",
             "ce_source": "data-gen",
             "ce_reason": random.choice([
                 "VOLUNTARIO", "INADIMPLENCIA", "OBITO",
-                "PORTABILIDADE", "LGPD_EXCLUSAO",
+                "FRAUDE", "LGPD_EXCLUSAO",
             ]),
         },
     }
@@ -437,7 +434,7 @@ class PoisonPillConfig:
 def test_injection_rates(scenario, config, tolerance=0.3):
     """Verify injection rates are within tolerance of configured rates."""
     labels = scenario.get_labels()["poison_pills"]
-    total = len(scenario.store.get_all_guias())
+    total = len(scenario.store.get_all_transactions())
 
     for pill_type, expected_rate in [
         ("DUPLICATE", config.duplicate_rate),

@@ -12,7 +12,7 @@ Create complete scenario classes that orchestrate multiple generators, behaviora
 |-------|----------|-------------|
 | `scenario_name` | Yes | Name of the scenario (e.g., DataQuality, RealisticPayments, FraudDetection) |
 | `entities` | Yes | List of entities to generate |
-| `patterns` | No | Behavioral patterns to apply (recurring, seasonal, glosa, etc.) |
+| `patterns` | No | Behavioral patterns to apply (seasonal, fraud bursts, refunds, etc.) |
 | `poison_pills` | No | PoisonPillConfig for data quality injection |
 | `labels` | No | Ground truth labels to generate (fraud rule triggered, approval outcome) |
 | `sinks` | No | Target sinks (kafka, postgres, json, console) |
@@ -21,7 +21,7 @@ Create complete scenario classes that orchestrate multiple generators, behaviora
 
 1. **Map Dependencies**: Build entity dependency graph (L0 -> L1 -> L2)
 2. **Configure Generators**: Instantiate generators with seed and config
-3. **Define Volume Ratios**: Set realistic entity counts per membro
+3. **Define Volume Ratios**: Set realistic entity counts per account (Pareto)
 4. **Compose Patterns**: Layer behavioral patterns on base generators
 5. **Add Poison Pills**: Wrap streams with configurable injection
 6. **Generate Labels**: Produce ground truth alongside data
@@ -36,13 +36,14 @@ Create complete scenario classes that orchestrate multiple generators, behaviora
 from dataclasses import dataclass, field
 from typing import Any
 
-from data_gen.generators.saude import (
-    GuiaGenerator,
-    MembroGenerator,
-    PrestadorGenerator,
+from data_gen.generators.payments import (
+    AccountGenerator,
+    CardGenerator,
+    MerchantGenerator,
+    TransactionGenerator,
 )
-from data_gen.generators.saude.patterns import AutorizacaoBehavior
-from data_gen.store.saude import SaudeDataStore
+from data_gen.generators.payments.patterns import FraudBurstBehavior
+from data_gen.store.payments import PaymentsDataStore
 
 
 @dataclass
@@ -51,24 +52,24 @@ class {ScenarioName}Config:
 
     Parameters
     ----------
-    num_membros : int
-        Number of membros/beneficiarios to generate.
+    num_accounts : int
+        Number of accounts to generate.
     seed : int | None
         Random seed for reproducibility.
     {pattern_params}
     """
 
-    num_membros: int = 1000
+    num_accounts: int = 1000
     seed: int | None = None
     # Entity penetration rates
-    planos_per_membro: int = 1
-    dependentes_penetration: float = 0.40
-    guia_penetration: float = 0.60
+    cards_per_account: tuple[int, int] = (1, 3)
+    merchant_pool_size: int = 200
+    txn_per_account_month: tuple[int, int] = (0, 150)  # Pareto-distributed
     # Pattern toggles
-    enable_recurring_consultas: bool = True
-    enable_seasonal_internacoes: bool = True
-    enable_glosa_patterns: bool = True
-    enable_coparticipacao: bool = True
+    enable_bimodal_hours: bool = True
+    enable_seasonal_volume: bool = True
+    enable_fraud_bursts: bool = True
+    enable_refunds: bool = True
     # Poison pills
     poison_pill_config: PoisonPillConfig | None = None
 
@@ -77,57 +78,55 @@ class {ScenarioName}Scenario:
     """Generate {description}.
 
     Orchestrates generators in dependency order:
-    L0: Membro, Prestador
-    L1: Plano, Dependente, Contrato, Credenciamento
-    L2: Guia, Autorizacao, Mensalidade
-    L3: Glosa, Coparticipacao (derived events)
+    L0: Customer, Merchant
+    L1: Account, Card
+    L2: Transaction
+    L3: Refund, FraudAlert (derived events)
     """
 
     def __init__(self, config: {ScenarioName}Config | None = None) -> None:
         self.config = config or {ScenarioName}Config()
-        self.store = SaudeDataStore()
+        self.store = PaymentsDataStore()
         self._labels: dict[str, dict] = {}
         self._init_generators()
 
     def _init_generators(self) -> None:
         """Initialize all generators with shared seed."""
         seed = self.config.seed
-        self.membro_gen = MembroGenerator(seed=seed)
-        self.prestador_gen = PrestadorGenerator(seed=seed)
-        self.guia_gen = GuiaGenerator(seed=seed)
+        self.account_gen = AccountGenerator(seed=seed)
+        self.card_gen = CardGenerator(seed=seed)
+        self.merchant_gen = MerchantGenerator(seed=seed)
+        self.txn_gen = TransactionGenerator(seed=seed)
         # ... other generators
 
-    def generate(self) -> SaudeDataStore:
+    def generate(self) -> PaymentsDataStore:
         """Execute scenario in dependency order.
 
         Returns
         -------
-        SaudeDataStore
+        PaymentsDataStore
             Store with all generated entities and relationships.
         """
         # Level 0 — no FK dependencies
-        self._generate_membros()
-        self._generate_prestadores()
+        self._generate_customers()
+        self._generate_merchants()
 
-        # Level 1 — FK to Membro/Prestador
-        self._generate_planos()
-        self._generate_dependentes()
-        self._generate_contratos()
+        # Level 1 — FK to Customer
+        self._generate_accounts()
+        self._generate_cards()
 
-        # Level 2 — FK to Plano/Prestador
-        self._generate_guias()
-        self._generate_autorizacoes()
-        self._generate_mensalidades()
+        # Level 2 — FK to Account/Card/Merchant
+        self._generate_transactions()
 
         # Behavioral patterns
-        if self.config.enable_recurring_consultas:
-            self._apply_recurring_consultas()
-        if self.config.enable_seasonal_internacoes:
-            self._apply_seasonal_internacoes()
-        if self.config.enable_glosa_patterns:
-            self._apply_glosa_patterns()
-        if self.config.enable_coparticipacao:
-            self._apply_coparticipacao()
+        if self.config.enable_bimodal_hours:
+            self._apply_bimodal_hours()
+        if self.config.enable_seasonal_volume:
+            self._apply_seasonal_volume()
+        if self.config.enable_fraud_bursts:
+            self._apply_fraud_bursts()
+        if self.config.enable_refunds:
+            self._apply_refunds()
 
         # Poison pills
         if self.config.poison_pill_config:
@@ -136,34 +135,34 @@ class {ScenarioName}Scenario:
         return self.store
 
     def get_labels(self) -> dict[str, dict]:
-        """Return ground truth labels for ML training."""
+        """Return ground truth labels for ML training (modulo 6)."""
         return self._labels
 
     def get_summary(self) -> dict[str, Any]:
         """Return scenario statistics."""
         return {
-            "membros": len(self.store.membros),
-            "prestadores": len(self.store.prestadores),
-            "guias": sum(
-                len(guias) for guias in self.store._membro_guias.values()
+            "accounts": len(self.store.accounts),
+            "merchants": len(self.store.merchants),
+            "transactions": sum(
+                len(txns) for txns in self.store._account_transactions.values()
             ),
             "labels": {k: len(v) for k, v in self._labels.items()},
         }
 
     # --- Private generation methods ---
 
-    def _generate_membros(self) -> None:
-        """Generate Level 0: Membros/Beneficiarios."""
-        for _ in range(self.config.num_membros):
-            membro = self.membro_gen.generate()
-            self.store.add_membro(membro)
+    def _generate_accounts(self) -> None:
+        """Generate Level 1: Accounts (FK -> Customer)."""
+        for customer in self.store.customers.values():
+            account = self.account_gen.generate_for_customer(customer)
+            self.store.add_account(account)
 
-    def _generate_planos(self) -> None:
-        """Generate Level 1: Planos (FK -> Membro)."""
-        for membro in self.store.membros.values():
-            for _ in range(self.config.planos_per_membro):
-                plano = self.plano_gen.generate_for_membro(membro)
-                self.store.add_plano(plano)
+    def _generate_cards(self) -> None:
+        """Generate Level 1: Cards (FK -> Account)."""
+        for account in self.store.accounts.values():
+            for _ in range(self._cards_count()):
+                card = self.card_gen.generate_for_account(account)
+                self.store.add_card(card)
 
     # ... other _generate methods following same pattern
 ```
@@ -174,13 +173,13 @@ class {ScenarioName}Scenario:
 
 ```python
 # DO: Compose patterns as independent, injectable classes
-class RealisticHealthInsuranceScenario:
+class RealisticPaymentsScenario:
     def __init__(self, config):
         self.patterns = [
-            RecurringConsultaPattern(config.consultas),
-            SeasonalInternacaoPattern(config.internacoes),
-            GlosaDetectionPattern(config.glosas),
-            CoparticipacaoPattern(config.coparticipacao),
+            BimodalHoursPattern(config.hours),
+            SeasonalVolumePattern(config.seasonality),
+            FraudBurstPattern(config.fraud),
+            RefundPattern(config.refunds),
         ]
 
     def _apply_patterns(self):
@@ -194,23 +193,23 @@ class RealisticHealthInsuranceScenario:
 
 ```python
 # Track labels during generation, not after
-def _generate_glosa_guias(self):
-    for guia in glosa_generator.generate():
-        self.store.add_guia(guia)
-        self._labels.setdefault("glosa", {})[guia.guia_id] = True
+def _apply_fraud_bursts(self):
+    for txn in fraud_generator.generate():
+        self.store.add_transaction(txn)
+        self._labels.setdefault("fraud", {})[txn.transaction_id] = txn.fraud_rule
 ```
 
 ### Pattern: Volume Calibration
 
 ```python
-# Use realistic multipliers, not magic numbers
+# Use realistic multipliers, not magic numbers (see rules.md — Domain Rules)
 VOLUME_RATIOS = {
-    "guias_per_membro_year": (2, 12),
-    "consultas_per_membro_year": (1, 8),
-    "internacoes_per_membro_year": (0, 1),
-    "dependentes_per_titular": (0, 4),
-    "glosa_rate": 0.08,
-    "coparticipacao_rate": 0.30,
+    "txn_per_account_month_heavy": (40, 150),   # 20% accounts → 80% volume
+    "txn_per_account_month_light": (0, 5),
+    "cards_per_account": (1, 3),
+    "fraud_rate": (0.005, 0.015),
+    "refund_rate": 0.02,
+    "approval_rate": (0.92, 0.97),
 }
 ```
 
@@ -222,7 +221,7 @@ VOLUME_RATIOS = {
 - [ ] Config dataclass with all parameters and defaults
 - [ ] `get_labels()` returns ground truth
 - [ ] `get_summary()` returns statistics
-- [ ] Referential integrity maintained via SaudeDataStore
+- [ ] Referential integrity maintained via PaymentsDataStore
 - [ ] Tests: determinism, volume, FK integrity, label accuracy
 - [ ] 80%+ test coverage
 
@@ -234,3 +233,7 @@ VOLUME_RATIOS = {
 "Create a FraudDetectionScenario with velocity and geo-impossible patterns para o lab do módulo 4"
 "Design a scenario for testing Kafka deduplication with duplicate poison pills"
 ```
+
+---
+
+**Última atualização**: 2026-07-11

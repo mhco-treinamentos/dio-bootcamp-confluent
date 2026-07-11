@@ -153,7 +153,7 @@ class CachedStore:
 
 | Agent | Interaction |
 |-------|-------------|
-| `health-insurance-data-expert` | They define domain rules; you implement generators |
+| `data-modeler` | They define domain rules; you implement generators |
 | `payments-data-expert` | They define clinical fields; you implement data classes |
 | `data-modeler` | They define entity relationships; you implement the dataclasses and store |
 | `kafka-streaming-expert` | They define producer config; you implement the sink interface |

@@ -10,7 +10,7 @@ Create and configure poison pill generators that inject realistic data quality p
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `entity` | Yes | Entity to inject poison pills into (guia, membro, etc.) |
+| `entity` | Yes | Entity to inject poison pills into (transaction, account, etc.) |
 | `poison_types` | No | Specific types to inject (default: all enabled in config) |
 | `config` | No | PoisonPillConfig with rates per type |
 | `audit` | No | Whether to generate injection audit trail (default: true) |
@@ -72,9 +72,9 @@ def _nullify_fields(self, record: T, nullable_fields: list[str]) -> T:
 ```python
 MALFORMATIONS = {
     "cpf": lambda: "ABC.DEF.GHI-JK",           # letters in CPF
-    "cns": lambda: "000",                        # invalid CNS
+    "cnpj": lambda: "000",                       # invalid CNPJ
     "cep": lambda: "000",                        # invalid CEP
-    "valor_autorizado": lambda: Decimal("-999.99"),  # negative valor
+    "amount": lambda: Decimal("-999.99"),        # negative amount
     "email": lambda: "not-an-email",             # invalid email
     "data_solicitacao": lambda: "2025-13-32",    # impossible date
 }
@@ -102,7 +102,7 @@ def _orphan(self, record: T, fk_field: str) -> T:
 ### 7. Extreme Values
 ```python
 EXTREMES = {
-    "valor_autorizado": [Decimal("0.01"), Decimal("9999999.99")],
+    "amount": [Decimal("0.01"), Decimal("9999999.99")],
     "quantidade": [0, 999999],
     "idade": [0, 150],
 }
@@ -133,7 +133,7 @@ def _timezone_mismatch(self, record: T) -> T:
 ```python
 def _tombstone(self, record: T) -> dict:
     """Emit null-payload event (for compacted topics)."""
-    key = getattr(record, "membro_id", getattr(record, "guia_id", None))
+    key = getattr(record, "account_id", getattr(record, "transaction_id", None))
     self._log_injection(record, "TOMBSTONE")
     return {"key": key, "value": None}  # Kafka tombstone
 ```
@@ -162,7 +162,7 @@ def _encoding_issue(self, record: T) -> T:
 def _schema_evolution(self, record: T) -> dict:
     """Add unexpected fields that weren't in the original schema."""
     data = asdict(record)
-    data["cid_10_secundario"] = "Z00.0"  # new field
+    data["fraud_score"] = 0.42  # new field (schema v2)
     data["_schema_version"] = "v2"
     self._log_injection(record, "SCHEMA_EVOLUTION")
     return data
@@ -174,8 +174,8 @@ def _retroactive_correction(self, record: T) -> T:
     """Emit corrected version of a previously processed record."""
     clone = copy.deepcopy(record)
     # Modify valor slightly (estorno parcial)
-    if hasattr(clone, "valor_autorizado"):
-        clone.valor_autorizado = clone.valor_autorizado * Decimal("0.85")  # partial refund
+    if hasattr(clone, "amount"):
+        clone.amount = clone.amount * Decimal("0.85")  # partial refund
     clone.status = "CORRIGIDA"
     self._log_injection(clone, "RETROACTIVE_CORRECTION")
     return clone
@@ -230,8 +230,8 @@ AGGRESSIVE = PoisonPillConfig(
 ## Example Usage
 
 ```
-"Use poison-pill-injector to add duplicate and late-arriving events to guias"
+"Use poison-pill-injector to add duplicate and late-arriving events to transactions"
 "Configure aggressive poison pills for stress-testing the Kafka pipeline"
-"Inject orphan records into guia data to test FK validation"
+"Inject orphan records into transaction data to test FK validation"
 "Create a DataQualityScenario with all 12 poison types at moderate rates"
 ```

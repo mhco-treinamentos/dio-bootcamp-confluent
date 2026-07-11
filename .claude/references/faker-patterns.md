@@ -52,230 +52,220 @@ fake.cellphone_number()       # Mobile format
 fake.landline_number()        # Landline format
 ```
 
-## Domain examples (legacy: health insurance) Providers
+## Payments Domain Providers
 
-### CNS Provider (Cartão Nacional de Saúde)
+### Card Provider (PAN sempre mascarado)
 ```python
 from faker.providers import BaseProvider
 
-class CNSProvider(BaseProvider):
-    """Custom provider for CNS (Cartão Nacional de Saúde) numbers."""
+class CardProvider(BaseProvider):
+    """Custom provider for card data — PAN is NEVER generated in cleartext."""
 
-    def cns(self) -> str:
-        """Generate valid CNS number (15 digits)."""
-        # First digit determines type: 1-2 = definitivo, 7-9 = provisório
-        first = self.random_element(["1", "2", "7", "8", "9"])
-        body = self.generator.numerify("##############")
-        return first + body[:14]
+    BRANDS_BINS = {
+        "VISA": ["40171234", "45312345"],
+        "MASTERCARD": ["51231234", "55412345"],
+        "ELO": ["50663912", "50900112"],
+        "HIPERCARD": ["60627812", "38412345"],
+    }
 
-    def cns_definitivo(self) -> str:
-        """Generate definitive CNS (starts with 1 or 2)."""
-        first = self.random_element(["1", "2"])
-        return first + self.generator.numerify("##############")[:14]
+    def card_brand(self) -> str:
+        # Market share aproximado no Brasil
+        return self.random_element(
+            ["VISA", "MASTERCARD", "ELO", "HIPERCARD"],
+            weights=[0.40, 0.35, 0.20, 0.05],
+        )
+
+    def pan_masked(self, brand: str | None = None) -> str:
+        """Generate masked PAN: BIN(8) + ****** + last4. Never cleartext."""
+        brand = brand or self.card_brand()
+        bin_ = self.random_element(self.BRANDS_BINS[brand])
+        last4 = self.generator.numerify("####")
+        return f"{bin_}******{last4}"
+
+    def card_type(self) -> str:
+        return self.random_element(["CREDIT", "DEBIT", "MULTIPLE"], weights=[0.45, 0.35, 0.20])
 ```
 
-### TUSS Provider
+### MCC Provider (ISO 18245)
 ```python
-class TUSSProvider(BaseProvider):
-    """Custom provider for TUSS (medical procedure) codes."""
+class MCCProvider(BaseProvider):
+    """Custom provider for Merchant Category Codes (ISO 18245)."""
 
-    CONSULTAS = [
-        ("10101012", "Consulta em consultório"),
-        ("10101039", "Consulta em pronto socorro"),
-        ("10102019", "Consulta em domicílio"),
+    # Top MCCs concentram ~70% das transações (ver rules.md)
+    TOP_MCCS = [
+        ("5411", "Supermercados"),
+        ("5541", "Postos de combustível"),
+        ("5812", "Restaurantes"),
+        ("5814", "Fast food"),
+        ("5912", "Farmácias"),
+        ("5651", "Vestuário"),
+        ("4121", "Táxi/rideshare"),
+        ("5732", "Eletrônicos"),
+        ("5942", "Livrarias"),
+        ("7995", "Apostas"),  # útil p/ cenários de risco
     ]
 
-    EXAMES_LAB = [
-        ("40301630", "Hemograma completo"),
-        ("40302040", "Glicose"),
-        ("40302580", "Colesterol total"),
-        ("40301150", "Creatinina"),
-        ("40302423", "TSH"),
+    LONG_TAIL_MCCS = [
+        ("742", "Veterinários"),
+        ("780", "Paisagismo"),
+        ("1731", "Eletricistas"),
+        ("4111", "Transporte urbano"),
+        ("4899", "TV a cabo/streaming"),
+        ("5045", "Computadores"),
+        ("5192", "Jornais/revistas"),
+        ("5661", "Calçados"),
+        ("5945", "Brinquedos"),
+        ("8011", "Médicos"),
     ]
 
-    EXAMES_IMAGEM = [
-        ("40801020", "Radiografia de tórax"),
-        ("40901033", "Ultrassonografia abdome total"),
-        ("40808017", "Tomografia computadorizada crânio"),
-        ("41001010", "Ressonância magnética crânio"),
-    ]
-
-    INTERNACAO = [
-        ("30101557", "Apendicectomia"),
-        ("31003079", "Parto cesáreo"),
-        ("30715016", "Artroscopia de joelho"),
-        ("30401054", "Colecistectomia videolaparoscópica"),
-    ]
-
-    def codigo_tuss(self, tipo: str = None) -> tuple[str, str]:
-        """Return (code, description) for a TUSS procedure."""
-        if tipo == "CONSULTA":
-            return self.random_element(self.CONSULTAS)
-        elif tipo == "EXAME_LAB":
-            return self.random_element(self.EXAMES_LAB)
-        elif tipo == "EXAME_IMAGEM":
-            return self.random_element(self.EXAMES_IMAGEM)
-        elif tipo == "INTERNACAO":
-            return self.random_element(self.INTERNACAO)
-        else:
-            all_procs = self.CONSULTAS + self.EXAMES_LAB + self.EXAMES_IMAGEM + self.INTERNACAO
-            return self.random_element(all_procs)
+    def mcc(self) -> tuple[str, str]:
+        """Return (code, description) — 70% top MCCs, 30% long tail."""
+        if self.generator.random.random() < 0.70:
+            return self.random_element(self.TOP_MCCS)
+        return self.random_element(self.LONG_TAIL_MCCS)
 ```
 
-### CID-10 Provider
+### PIX Provider
 ```python
-class CID10Provider(BaseProvider):
-    """Custom provider for ICD-10 diagnosis codes."""
+class PixProvider(BaseProvider):
+    """Custom provider for PIX keys and end-to-end IDs."""
 
-    COMMON_CIDS = [
-        ("J06.9", "Infecção aguda das vias aéreas superiores"),
-        ("M54.5", "Dor lombar baixa"),
-        ("J18.9", "Pneumonia não especificada"),
-        ("I10", "Hipertensão essencial"),
-        ("E11", "Diabetes mellitus tipo 2"),
-        ("K29.7", "Gastrite não especificada"),
-        ("N39.0", "Infecção do trato urinário"),
-        ("J45", "Asma"),
-        ("F41.1", "Ansiedade generalizada"),
-        ("M79.3", "Paniculite não especificada"),
-    ]
+    def pix_key_type(self) -> str:
+        return self.random_element(
+            ["CPF", "EMAIL", "PHONE", "EVP"],
+            weights=[0.35, 0.25, 0.25, 0.15],
+        )
 
-    def cid_10(self) -> tuple[str, str]:
-        """Return (code, description) for a CID-10 diagnosis."""
-        return self.random_element(self.COMMON_CIDS)
+    def pix_key(self, key_type: str | None = None) -> str:
+        key_type = key_type or self.pix_key_type()
+        if key_type == "CPF":
+            return self.generator.cpf(formatted=False)
+        if key_type == "EMAIL":
+            return self.generator.email()
+        if key_type == "PHONE":
+            return f"+55{self.generator.msisdn()[2:13]}"
+        return str(self.generator.uuid4())  # EVP — chave aleatória
+
+    def end_to_end_id(self) -> str:
+        """E2E ID: 'E' + ISPB(8) + yyyyMMddHHmm + sequencial(11)."""
+        ispb = self.generator.numerify("########")
+        ts = self.generator.date_time_this_year().strftime("%Y%m%d%H%M")
+        seq = self.generator.lexify("???????????").upper()
+        return f"E{ispb}{ts}{seq}"
 ```
 
-### Guia TISS Provider
+### Transaction Provider
 ```python
-class GuiaTISSProvider(BaseProvider):
-    """Custom provider for TISS authorization guide data."""
+class TransactionProvider(BaseProvider):
+    """Custom provider for transaction attributes."""
 
-    GUIDE_TYPES = ["CONSULTA", "SP_SADT", "INTERNACAO", "ODONTOLOGICA", "HONORARIOS"]
-    GUIDE_STATUS = ["SOLICITADA", "EM_ANALISE", "AUTORIZADA", "NEGADA", "EXECUTADA", "FATURADA"]
+    CHANNELS = ["PIX", "CREDIT", "DEBIT", "BOLETO"]
+    STATUS = ["CREATED", "AUTHORIZED", "SETTLED", "DECLINED", "REFUNDED"]
+    DECLINE_REASONS = ["INSUFFICIENT_FUNDS", "SUSPECTED_FRAUD", "EXPIRED_CARD", "LIMIT_EXCEEDED"]
 
-    PLAN_NAMES = [
-        "Premium", "Basic", "Empresarial",
-        "Adesão", "Nacional",
-    ]
+    def channel(self) -> str:
+        # PIX domina volume no Brasil
+        return self.random_element(self.CHANNELS, weights=[0.45, 0.25, 0.20, 0.10])
 
-    def tipo_guia(self) -> str:
-        weights = [0.40, 0.35, 0.10, 0.10, 0.05]
-        return self.random_element(self.GUIDE_TYPES, weights=weights)
+    def transaction_status(self, weights: list[float] | None = None) -> str:
+        # Aprovação 92–97% (ver rules.md)
+        weights = weights or [0.02, 0.05, 0.88, 0.04, 0.01]
+        return self.random_element(self.STATUS, weights=weights)
 
-    def status_guia(self, weights: list[float] | None = None) -> str:
-        weights = weights or [0.05, 0.05, 0.20, 0.05, 0.35, 0.30]
-        return self.random_element(self.GUIDE_STATUS, weights=weights)
-
-    def numero_guia(self) -> str:
-        """Generate TISS guide number (10 digits)."""
-        return self.generator.numerify("##########")
-
-    def senha_autorizacao(self) -> str:
-        """Generate authorization password."""
-        return self.generator.lexify("????").upper() + self.generator.numerify("######")
-
-    def nome_plano(self) -> str:
-        return self.random_element(self.PLAN_NAMES)
+    def decline_reason(self) -> str:
+        return self.random_element(self.DECLINE_REASONS, weights=[0.55, 0.25, 0.12, 0.08])
 
 # Register providers
-fake.add_provider(CNSProvider)
-fake.add_provider(TUSSProvider)
-fake.add_provider(CID10Provider)
-fake.add_provider(GuiaTISSProvider)
+fake.add_provider(CardProvider)
+fake.add_provider(MCCProvider)
+fake.add_provider(PixProvider)
+fake.add_provider(TransactionProvider)
 ```
 
 ## Financial Data
 
-### Domain examples (legacy: health insurance) Amounts
+### Transaction Amounts
 ```python
 fake.pricetag()               # "R$ 1.234,56"
 
-# Custom amount generation for health procedures
+# Custom amount generation per channel
 import random
 from decimal import Decimal
 
-PROCEDURE_VALUE_RANGES = {
-    "CONSULTA": (80, 250),
-    "SP_SADT_SIMPLES": (50, 500),
-    "SP_SADT_COMPLEXO": (500, 5000),
-    "INTERNACAO": (2000, 100000),
-    "ODONTOLOGICA": (50, 2000),
-    "HONORARIOS": (200, 15000),
+CHANNEL_VALUE_RANGES = {
+    "PIX": (1, 5000),
+    "CREDIT": (10, 10000),
+    "DEBIT": (5, 2000),
+    "BOLETO": (50, 10000),
 }
 
-def generate_procedure_amount(tipo: str = "CONSULTA") -> Decimal:
-    """Generate realistic procedure amount."""
-    min_val, max_val = PROCEDURE_VALUE_RANGES.get(tipo, (50, 5000))
-    amount = random.paretovariate(1.5) * min_val
+def generate_transaction_amount(channel: str = "PIX") -> Decimal:
+    """Generate realistic transaction amount — log-normal, median ~R$80."""
+    min_val, max_val = CHANNEL_VALUE_RANGES.get(channel, (1, 10000))
+    amount = random.lognormvariate(4.4, 1.1)  # median ≈ e^4.4 ≈ R$81
     return Decimal(str(round(min(max(amount, min_val), max_val), 2)))
 
-PREMIUM_RANGES = {
-    "INDIVIDUAL": (200, 800),
-    "FAMILIAR": (500, 2500),
-    "EMPRESARIAL": (150, 600),
-    "ADESAO": (250, 1200),
-}
-
-def generate_premium(tipo_plano: str = "INDIVIDUAL") -> Decimal:
-    """Generate monthly premium amount."""
-    min_val, max_val = PREMIUM_RANGES.get(tipo_plano, (200, 800))
-    return Decimal(str(round(random.uniform(min_val, max_val), 2)))
+def generate_credit_limit(tier: str = "BASIC") -> Decimal:
+    """Generate card credit limit per account tier."""
+    ranges = {"BASIC": (500, 3000), "PLUS": (3000, 15000), "PREMIUM": (15000, 80000)}
+    min_val, max_val = ranges.get(tier, (500, 3000))
+    return Decimal(str(round(random.uniform(min_val, max_val), -2)))  # múltiplos de 100
 ```
 
 ## Date/Time Patterns
 
-### Business Hours
+### Bimodal Daily Pattern (payments)
 ```python
 from datetime import datetime, timedelta
 
-def generate_business_timestamp(fake, business_hours_weight=0.7):
-    """Generate timestamp weighted toward business hours."""
+def generate_transaction_timestamp(fake):
+    """Generate timestamp with the bimodal daily pattern (11-13h, 18-21h BRT)."""
     base = fake.date_time_between(start_date="-30d", end_date="now")
-
-    if fake.boolean(chance_of_getting_true=int(business_hours_weight * 100)):
-        # Business hours: 7am - 6pm (clinics/hospitals)
-        hour = fake.random_int(min=7, max=17)
+    roll = fake.random.random()
+    if roll < 0.35:
+        hour = fake.random_int(min=11, max=13)   # pico almoço
+    elif roll < 0.70:
+        hour = fake.random_int(min=18, max=21)   # pico noite
     else:
-        hour = fake.random_int(min=0, max=23)
-
+        hour = fake.random_int(min=6, max=23)    # resto do dia
     return base.replace(hour=hour)
 ```
 
 ### Ordered Timestamps
 ```python
 def generate_ordered_timestamps(fake, count, start_date="-30d"):
-    """Generate ordered sequence of timestamps."""
+    """Generate ordered sequence of timestamps (created < authorized < settled)."""
     timestamps = []
     current = fake.date_time_between(start_date=start_date, end_date="now")
 
     for _ in range(count):
         timestamps.append(current)
-        # Add random interval (1 minute to 1 hour)
-        current += timedelta(minutes=fake.random_int(1, 60))
+        # Add random interval (1 second to 5 minutes for payments)
+        current += timedelta(seconds=fake.random_int(1, 300))
 
     return timestamps
 ```
 
 ## Statistical Distributions
 
-### Pareto (Procedure Values)
+### Log-Normal (Transaction Values)
 ```python
 import random
 
-def pareto_amount(alpha=1.5, scale=80, max_val=100000):
-    """Generate procedure value following Pareto distribution."""
-    amount = random.paretovariate(alpha) * scale
-    return round(min(amount, max_val), 2)
-```
-
-### Log-Normal (Premium Values)
-```python
-import random
-
-def lognormal_amount(mu=6, sigma=0.5, min_val=150, max_val=3000):
-    """Generate premium amount following log-normal distribution."""
+def lognormal_amount(mu=4.4, sigma=1.1, min_val=1, max_val=10000):
+    """Generate transaction amount following log-normal (median ~R$80, long tail)."""
     amount = random.lognormvariate(mu, sigma)
     return round(max(min_val, min(amount, max_val)), 2)
+```
+
+### Pareto (Transactions per Account)
+```python
+import random
+
+def transactions_for_account(alpha=1.2, base=5, max_val=500):
+    """20% of accounts generate 80% of transactions."""
+    count = int(random.paretovariate(alpha) * base)
+    return min(count, max_val)
 ```
 
 ### Weighted Categories
@@ -287,11 +277,11 @@ def weighted_category(fake, categories, weights):
         weights=weights,
     )
 
-# Example: Guide status
+# Example: transaction status (approval 92-97%)
 status = weighted_category(
     fake,
-    ["AUTORIZADA", "EXECUTADA", "NEGADA"],
-    [0.85, 0.10, 0.05],
+    ["SETTLED", "AUTHORIZED", "DECLINED"],
+    [0.88, 0.07, 0.05],
 )
 ```
 
@@ -299,26 +289,25 @@ status = weighted_category(
 
 ### Consistent Entity Data
 ```python
-def generate_membro(seed: int) -> dict:
-    """Generate deterministic health plan member data."""
+def generate_customer(seed: int) -> dict:
+    """Generate deterministic customer data — same seed, same customer."""
     fake = Faker("pt_BR")
     fake.seed_instance(seed)
 
     return {
-        "membro_id": f"MBR-{seed:08d}",
-        "cpf": fake.cpf(),
-        "cns": fake.numerify("###############"),
+        "customer_id": f"CUS-{seed:08d}",
+        "cpf": fake.cpf(formatted=False),
         "nome": fake.name(),
         "email": fake.email(),
         "telefone": fake.phone_number(),
-        "data_nascimento": str(fake.date_of_birth(minimum_age=0, maximum_age=90)),
-        "sexo": fake.random_element(["M", "F"]),
+        "data_nascimento": str(fake.date_of_birth(minimum_age=18, maximum_age=90)),
+        "uf": fake.estado_sigla(),
     }
 
-# Same seed = same member
-membro1 = generate_membro(12345)
-membro2 = generate_membro(12345)
-assert membro1 == membro2
+# Same seed = same customer (PII consistente entre runs — ver rules.md)
+customer1 = generate_customer(12345)
+customer2 = generate_customer(12345)
+assert customer1 == customer2
 ```
 
 ### Batch Generation
@@ -331,3 +320,7 @@ def generate_batch(generator_func, count: int, seed: int = 42):
         records.append(record)
     return records
 ```
+
+---
+
+**Última atualização**: 2026-07-11

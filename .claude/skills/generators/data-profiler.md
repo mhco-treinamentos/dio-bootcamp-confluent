@@ -31,55 +31,58 @@ Profile synthetic data for:
 ```markdown
 ## Data Profile Report
 
-### Dataset: guias.json
+### Dataset: transactions.json
 ### Records: 10,000
 
 ---
 
-### Field: guia_id
+### Field: transaction_id
 - Type: string (UUID)
 - Unique: 10,000 (100%)
 - Nulls: 0 (0%)
 - Format: Valid UUIDs
 
-### Field: valor_autorizado
+### Field: amount
 - Type: decimal
-- Min: 50.00
-- Max: 98,523.45
-- Mean: 1,342.56
-- Median: 287.23
-- Std Dev: 3,245.67
-- Distribution: Pareto (as expected)
+- Min: 1.00
+- Max: 9,852.45
+- Mean: 134.56
+- Median: 81.23
+- Std Dev: 324.67
+- Distribution: Log-normal, median ~R$80 (as expected — rules.md)
 
-### Field: data_solicitacao
+### Field: created_at
 - Type: timestamp
-- Range: 2025-01-01 to 2025-01-20
-- Business hours: 78% (expected: 80%)
-- Weekend: 8%
+- Range: 2026-06-11 to 2026-07-11
+- Bimodal peaks (11-13h, 18-21h): 68% (expected: 70%)
+- Weekend: 27%
 
 ### Field: status
 - Type: enum
 - Values:
-  - SOLICITADA: 25%
-  - EM_ANALISE: 15%
-  - AUTORIZADA: 35%
-  - EXECUTADA: 25%
+  - SETTLED: 88%
+  - AUTHORIZED: 7%
+  - DECLINED: 5%
+
+### Field: fraud_flag
+- Rate: 0.9% (expected: 0.5-1.5%)
+- Geo correlation (UF card × UF txn): 87% (expected: ≥85%)
 
 ---
 
 ### Quality Score: 95/100
 
 ### Issues
-- [INFO] 2 guias with valor_autorizado > 80,000 (rare but valid)
+- [INFO] 2 transactions with amount > 8,000 (rare but valid — long tail)
 
 ### Recommendations
-- Consider adding more INTERNACAO guias for realism
+- Consider adding more BOLETO transactions for channel realism
 ```
 
 ## Example Usage
 
 ```
-"Profile the generated guia TISS data"
-"Analyze the membro dataset for distribution"
-"Validate prestador data against the schema"
+"Profile the generated transaction data"
+"Analyze the account dataset for Pareto distribution"
+"Validate merchant data against the schema"
 ```

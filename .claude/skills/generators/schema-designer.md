@@ -5,9 +5,8 @@
 ## Purpose
 
 Design schemas for:
-- Domain entities (legacy health: membros, planos, guias TISS, prestadores; current payments: contas, cartoes, transacoes)
-- Financial entities (mensalidades, coparticipacoes, faturas, glosas)
-- Clinical entities (laudos, procedimentos, diagnosticos)
+- Domain entities (payments: customers, accounts, cards, merchants)
+- Event entities (transactions, refunds, fraud alerts)
 - Custom domains
 
 ## Inputs
@@ -15,7 +14,7 @@ Design schemas for:
 | Input | Required | Description |
 |-------|----------|-------------|
 | `entity` | Yes | Entity to design schema for |
-| `domain` | Yes | Domain (payments — default do bootcamp; legacy: saude, financeiro, clinico) |
+| `domain` | Yes | Domain (payments — default do bootcamp) |
 | `format` | No | Schema format (avro, json) - default: avro |
 | `requirements` | No | Specific field requirements |
 
@@ -24,7 +23,7 @@ Design schemas for:
 1. **Analyze Domain**: Understand entity context
 2. **Identify Fields**: Core fields, metadata, relationships
 3. **Choose Types**: Appropriate data types and logical types
-4. **Add Constraints**: Validation rules, defaults
+4. **Add Constraints**: Validation rules, defaults, PII/PCI tags
 5. **Document**: Field descriptions and examples
 
 ## Output Example
@@ -32,74 +31,83 @@ Design schemas for:
 ```json
 {
   "type": "record",
-  "name": "GuiaTISS",
+  "name": "Transaction",
   "namespace": "com.bootcamp.payments",
-  "doc": "Guia TISS de autorização de procedimento de saúde",
+  "doc": "Transação de pagamento (cartão/PIX)",
   "fields": [
     {
-      "name": "guia_id",
+      "name": "transaction_id",
       "type": "string",
-      "doc": "Identificador único da guia"
+      "doc": "Identificador único da transação"
     },
     {
-      "name": "numero_guia",
+      "name": "account_id",
       "type": "string",
-      "doc": "Número da guia TISS"
+      "doc": "ID da conta",
+      "confluent:tags": ["PII", "LGPD"]
     },
     {
-      "name": "tipo_guia",
+      "name": "card_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "ID do cartão (null para PIX/boleto)"
+    },
+    {
+      "name": "channel",
       "type": {
         "type": "enum",
-        "name": "TipoGuia",
-        "symbols": ["CONSULTA", "SP_SADT", "INTERNACAO", "ODONTOLOGICA", "HONORARIOS"]
+        "name": "Channel",
+        "symbols": ["PIX", "CREDIT", "DEBIT", "BOLETO"]
       },
-      "doc": "Tipo da guia conforme padrão TISS"
+      "doc": "Canal da transação"
     },
     {
-      "name": "valor_autorizado",
+      "name": "amount",
       "type": {
         "type": "bytes",
         "logicalType": "decimal",
-        "precision": 10,
+        "precision": 15,
         "scale": 2
       },
-      "doc": "Valor autorizado em BRL"
+      "doc": "Valor em BRL"
     },
     {
-      "name": "membro_id",
-      "type": "string",
-      "doc": "ID do beneficiário/membro"
-    },
-    {
-      "name": "prestador_id",
-      "type": "string",
-      "doc": "ID do prestador de serviço"
+      "name": "merchant_mcc",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "MCC do estabelecimento (ISO 18245)"
     },
     {
       "name": "status",
       "type": {
         "type": "enum",
-        "name": "GuiaStatus",
-        "symbols": ["SOLICITADA", "EM_ANALISE", "AUTORIZADA", "NEGADA", "EXECUTADA", "FATURADA", "PAGA", "GLOSADA"]
+        "name": "TransactionStatus",
+        "symbols": ["CREATED", "AUTHORIZED", "SETTLED", "DECLINED", "REFUNDED"]
       }
     },
     {
-      "name": "data_solicitacao",
+      "name": "created_at",
       "type": {
         "type": "long",
         "logicalType": "timestamp-millis"
       },
-      "doc": "Data/hora da solicitação da guia"
+      "doc": "Data/hora de criação da transação"
     }
   ]
 }
 ```
 
+> **Regras completas** (namespace, tags PII/PCI obrigatórias, envelope Debezium, compatibilidade BACKWARD): [rules/schemas.md](../../rules/schemas.md). O hook `validate-avro-pii.sh` bloqueia schemas com campos sensíveis sem `confluent:tags`.
+
 ## Example Usage
 
 ```
-"Design an Avro schema for guias TISS de autorização"
-"Create a JSON schema for membros/beneficiários"
-"Design a prestador schema for the saude domain"
-"Create an Avro schema for glosas de faturamento"
+"Design an Avro schema for payment transactions"
+"Create a JSON schema for accounts/customers"
+"Design a merchant schema with MCC enum"
+"Create an Avro schema for refunds com reason patterns"
 ```
+
+---
+
+**Última atualização**: 2026-07-11

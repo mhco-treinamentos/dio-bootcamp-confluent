@@ -14,8 +14,8 @@ Create Python generator classes that produce:
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `entity` | Yes | Entity to generate (guia, membro, prestador, plano) |
-| `domain` | Yes | Domain (saude, financeiro, clinico) |
+| `entity` | Yes | Entity to generate (transaction, account, card, merchant, refund) |
+| `domain` | Yes | Domain (payments — default do bootcamp) |
 | `schema` | No | Avro schema to conform to |
 | `patterns` | No | Specific patterns (distributions, frequencies) |
 
@@ -30,10 +30,11 @@ Create Python generator classes that produce:
 ## Output Example
 
 ```python
-"""Guia TISS generator for synthetic payments data."""
+"""Transaction generator for synthetic payments data."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Iterator
 import random
 
@@ -41,85 +42,82 @@ from faker import Faker
 
 
 @dataclass
-class GuiaGeneratorConfig:
-    """Configuration for guia TISS generator."""
+class TransactionGeneratorConfig:
+    """Configuration for transaction generator."""
 
     seed: int | None = None
     locale: str = "pt_BR"
-    min_valor: float = 50.00
-    max_valor: float = 100000.00
-    business_hours_weight: float = 0.8
+    min_amount: Decimal = Decimal("1.00")
+    max_amount: Decimal = Decimal("10000.00")
+    bimodal_hours_weight: float = 0.7  # picos 11-13h e 18-21h
 
 
-class GuiaGenerator:
-    """Generate synthetic guia TISS records."""
+class TransactionGenerator:
+    """Generate synthetic payment transaction records."""
 
-    TIPOS_GUIA = ["CONSULTA", "SP_SADT", "INTERNACAO", "ODONTOLOGICA", "HONORARIOS"]
-    TIPO_WEIGHTS = [0.40, 0.30, 0.10, 0.10, 0.10]
+    CHANNELS = ["PIX", "CREDIT", "DEBIT", "BOLETO"]
+    CHANNEL_WEIGHTS = [0.45, 0.25, 0.20, 0.10]
 
-    def __init__(self, config: GuiaGeneratorConfig | None = None) -> None:
-        self.config = config or GuiaGeneratorConfig()
+    def __init__(self, config: TransactionGeneratorConfig | None = None) -> None:
+        self.config = config or TransactionGeneratorConfig()
         self.fake = Faker(self.config.locale)
         if self.config.seed:
             Faker.seed(self.config.seed)
             random.seed(self.config.seed)
 
     def generate(self, count: int) -> Iterator[dict]:
-        """Generate synthetic guia TISS records.
+        """Generate synthetic transaction records.
 
         Parameters
         ----------
         count : int
-            Number of guias to generate.
+            Number of transactions to generate.
 
         Yields
         ------
         dict
-            Guia TISS record.
+            Transaction record.
         """
         for _ in range(count):
-            yield self._generate_guia()
+            yield self._generate_transaction()
 
-    def _generate_guia(self) -> dict:
-        """Generate a single guia TISS."""
-        tipo_guia = random.choices(self.TIPOS_GUIA, weights=self.TIPO_WEIGHTS, k=1)[0]
+    def _generate_transaction(self) -> dict:
+        """Generate a single transaction."""
+        channel = random.choices(self.CHANNELS, weights=self.CHANNEL_WEIGHTS, k=1)[0]
         return {
-            "guia_id": self.fake.uuid4(),
-            "numero_guia": self.fake.numerify("################"),
-            "tipo_guia": tipo_guia,
-            "valor_autorizado": self._generate_valor(tipo_guia),
-            "membro_id": self.fake.uuid4(),
-            "prestador_id": self.fake.uuid4(),
-            "data_solicitacao": self._generate_timestamp(),
-            "status": random.choice(
-                ["SOLICITADA", "EM_ANALISE", "AUTORIZADA", "EXECUTADA"]
-            ),
+            "transaction_id": self.fake.uuid4(),
+            "account_id": self.fake.uuid4(),
+            "card_id": self.fake.uuid4() if channel in ("CREDIT", "DEBIT") else None,
+            "channel": channel,
+            "amount": str(self._generate_amount(channel)),
+            "merchant_mcc": self.fake.numerify("####"),
+            "uf_transacao": self.fake.estado_sigla(),
+            "created_at": self._generate_timestamp(),
+            "status": random.choices(
+                ["SETTLED", "AUTHORIZED", "DECLINED"], weights=[0.88, 0.07, 0.05], k=1
+            )[0],
         }
 
-    def _generate_valor(self, tipo_guia: str) -> float:
-        """Generate valor based on tipo_guia with Pareto distribution."""
-        base_multiplier = {
-            "CONSULTA": 1.0,
-            "SP_SADT": 3.0,
-            "INTERNACAO": 20.0,
-            "ODONTOLOGICA": 1.5,
-            "HONORARIOS": 5.0,
+    def _generate_amount(self, channel: str) -> Decimal:
+        """Generate amount with log-normal distribution (median ~R$80, long tail)."""
+        channel_multiplier = {
+            "PIX": 1.0,
+            "CREDIT": 1.5,
+            "DEBIT": 0.7,
+            "BOLETO": 3.0,
         }
-        amount = random.paretovariate(1.5) * 50 * base_multiplier.get(tipo_guia, 1.0)
-        return round(
-            min(max(amount, self.config.min_valor), self.config.max_valor),
-            2,
-        )
+        amount = random.lognormvariate(4.4, 1.1) * channel_multiplier.get(channel, 1.0)
+        clamped = min(max(Decimal(str(round(amount, 2))), self.config.min_amount), self.config.max_amount)
+        return clamped.quantize(Decimal("0.01"))
 
     def _generate_timestamp(self) -> str:
-        """Generate timestamp weighted toward business hours."""
+        """Generate timestamp with bimodal daily pattern (11-13h, 18-21h BRT)."""
         base = datetime.now() - timedelta(days=random.randint(0, 30))
 
-        if random.random() < self.config.business_hours_weight:
-            # Business hours: 7am - 6pm
-            hour = random.randint(7, 17)
+        if random.random() < self.config.bimodal_hours_weight:
+            hour = random.choice([11, 12, 13, 18, 19, 20, 21])
         else:
-            hour = random.randint(0, 23)
+            hour = random.randint(6, 23)
 
         return base.replace(
             hour=hour,
@@ -131,10 +129,10 @@ class GuiaGenerator:
 ## Example Usage
 
 ```
-"Create a guia TISS generator with Pareto-distributed values"
-"Build a membro generator with age-appropriate planos"
-"Generate a prestador generator with speciality distribution"
-"Create a glosa generator with motivo patterns"
+"Create a transaction generator with log-normal amounts and bimodal hours"
+"Build an account generator with tier-appropriate credit limits"
+"Generate a merchant generator with top-10 MCC concentration"
+"Create a refund generator with reason patterns (FRAUD 40%, NOT_RECOGNIZED 30%)"
 ```
 
 ---

@@ -432,7 +432,7 @@ RESEARCH Phase:
 2. Web search: "Schema Registry compatibility modes 2024"
 3. Found: No significant updates needed
 4. Consult: kafka-architecture-expert for evolution strategy
-5. Consult: health-insurance-data-expert for PII/PHI field handling
+5. Consult: kafka-security-expert for PII/PCI field handling
 6. Explore: Found current schema in /schemas/transaction-v1.avsc
 7. Synthesize: Evolution options with compatibility analysis
 

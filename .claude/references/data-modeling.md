@@ -2,146 +2,133 @@
 
 > **Domain data modeling patterns for the bootcamp payments data generation**
 
-## Domain examples (legacy: health insurance; the bootcamp uses payments)
+## Domain models — Payments
 
-### Membro (Member) Model
+### Customer Model
 ```python
 @dataclass
-class Membro:
-    """Health plan member (beneficiario)."""
+class Customer:
+    """Bank customer (pessoa física)."""
 
-    membro_id: str               # UUID
-    cpf: str                     # PII
-    cns: str                     # Cartão Nacional de Saúde (PII)
+    customer_id: str             # UUID
+    cpf: str                     # PII — 11 digits, valid check digits
     nome: str                    # PII
     data_nascimento: date
-    sexo: str                    # M, F
     email: str | None            # PII
-    telefone: str | None         # PII
-    plano_id: str                # FK to Plano
-    tipo_titular: str            # TITULAR, DEPENDENTE
-    titular_id: str | None       # FK to Membro (if dependente)
-    status: str = "ATIVO"        # ATIVO, SUSPENSO, CANCELADO, CARENCIA
-    data_adesao: date
-    data_cancelamento: date | None = None
+    telefone: str | None         # PII — +55XXXXXXXXXXX
     endereco: Endereco
+    status: str = "ACTIVE"       # ACTIVE, SUSPENDED, CLOSED
     created_at: datetime
     updated_at: datetime
 ```
 
-### Plano (Plan) Model
+### Account Model
 ```python
 @dataclass
-class Plano:
-    """Domain entity example (legacy: health insurance plan)."""
+class Account:
+    """Checking/payment account."""
 
-    plano_id: str
-    nome: str                    # "Premium", "Basic"
-    tipo: str                    # INDIVIDUAL, FAMILIAR, EMPRESARIAL, ADESAO
-    abrangencia: str             # MUNICIPAL, ESTADUAL, NACIONAL
-    segmentacao: str             # AMBULATORIAL, HOSPITALAR, OBSTETRICO, REFERENCIA
-    ans_codigo: str              # ANS registry code
-    valor_base: Decimal          # Base monthly premium
-    coparticipacao: bool
-    created_at: datetime
-```
-
-### Guia (Authorization Guide) Model
-```python
-@dataclass
-class Guia:
-    """TISS authorization guide."""
-
-    guia_id: str                 # UUID
-    numero_guia: str             # TISS guide number (format: XXXXXXXXXX)
-    membro_id: str               # FK to Membro
-    prestador_id: str            # FK to Prestador
-    tipo_guia: str               # CONSULTA, SP_SADT, INTERNACAO, ODONTOLOGICA, HONORARIOS
-    status: str = "SOLICITADA"   # SOLICITADA→EM_ANALISE→AUTORIZADA→EXECUTADA→FATURADA
-    cid_10: str | None           # PHI - ICD-10 code
-    valor_autorizado: Decimal
-    valor_executado: Decimal | None
-    valor_glosa: Decimal | None
-    dt_solicitacao: datetime
-    dt_autorizacao: datetime | None
-    dt_execucao: datetime | None
-    senha_autorizacao: str | None
+    account_id: str              # UUID
+    customer_id: str             # FK to Customer
+    agencia: str                 # 4 digits
+    conta: str                   # up to 13 digits + check digit
+    tier: str                    # BASIC, PLUS, PREMIUM
+    balance: Decimal             # never float — BRL, 2 decimal places
+    overdraft_limit: Decimal     # cheque especial (0 se não contratado)
+    status: str = "ACTIVE"       # ACTIVE, SUSPENDED, CLOSED
+    opened_at: date
+    closed_at: date | None = None
     created_at: datetime
     updated_at: datetime
 ```
 
-### GuiaItem (Guide Line Item) Model
+### Card Model
 ```python
 @dataclass
-class GuiaItem:
-    """Individual procedure within a TISS guide."""
+class Card:
+    """Credit/debit card linked to an account."""
 
-    guia_item_id: str
-    guia_id: str                 # FK to Guia
-    codigo_tuss: str             # 8-digit TUSS code
-    descricao_tuss: str
-    quantidade: int
-    valor_unitario: Decimal
-    valor_total: Decimal
-    status: str = "SOLICITADO"
-    dt_execucao: datetime | None
+    card_id: str                 # UUID
+    account_id: str              # FK to Account
+    pan_masked: str              # PCI — ALWAYS masked: BIN(8) + ****** + last4
+    brand: str                   # VISA, MASTERCARD, ELO, HIPERCARD
+    card_type: str               # CREDIT, DEBIT, MULTIPLE
+    credit_limit: Decimal | None # null for debit-only
+    uf_emissao: str              # 2-letter state — used for geo correlation
+    status: str = "ACTIVE"       # ACTIVE, BLOCKED, EXPIRED, CANCELLED
+    issued_at: date
+    expires_at: date
     created_at: datetime
+    updated_at: datetime
 ```
 
-### Prestador (Provider) Model
+### Merchant Model
 ```python
 @dataclass
-class Prestador:
-    """Domain entity example (legacy: healthcare provider)."""
+class Merchant:
+    """Merchant/estabelecimento accepting payments."""
 
-    prestador_id: str
-    cnpj: str
-    nome: str
-    tipo: str                    # CLINICA, HOSPITAL, LABORATORIO, CONSULTORIO
-    especialidade: str           # CARDIOLOGIA, ORTOPEDIA, etc.
-    crm: str | None              # Medical registry (for individuals)
-    cnes: str                    # National Health Establishment Code
+    merchant_id: str             # UUID
+    cnpj: str                    # PII — 14 digits, valid check digits
+    nome_fantasia: str
+    mcc: str                     # 4-digit MCC (ISO 18245)
+    uf: str                      # 2-letter state
     endereco: Endereco
-    status: str = "ATIVO"
+    status: str = "ACTIVE"
     created_at: datetime
     updated_at: datetime
 ```
 
-### Mensalidade (Monthly Premium) Model
+### Transaction Model
 ```python
 @dataclass
-class Mensalidade:
-    """Monthly premium payment."""
+class Transaction:
+    """Card/PIX transaction (append-only event entity)."""
 
-    mensalidade_id: str
-    membro_id: str               # FK to Membro
-    plano_id: str                # FK to Plano
-    competencia: str             # "2026-01", "2026-02"
-    valor: Decimal
-    dt_vencimento: date
-    dt_pagamento: date | None
-    status: str = "PENDENTE"     # PENDENTE, PAGO, ATRASADO, INADIMPLENTE
-    created_at: datetime
-    updated_at: datetime
+    transaction_id: str          # UUID
+    account_id: str              # FK to Account
+    card_id: str | None          # FK to Card (null for PIX/boleto)
+    merchant_id: str | None      # FK to Merchant
+    channel: str                 # PIX, CREDIT, DEBIT, BOLETO
+    amount: Decimal              # BRL, log-normal (median ~R$80)
+    uf_transacao: str            # correlates ≥85% with card.uf_emissao
+    status: str = "CREATED"      # CREATED→AUTHORIZED→SETTLED | DECLINED | REFUNDED
+    decline_reason: str | None   # INSUFFICIENT_FUNDS, SUSPECTED_FRAUD, EXPIRED_CARD
+    fraud_flag: bool = False     # 0.5–1.5% of transactions
+    fraud_rule: str | None       # RULE_VELOCITY, RULE_GEO_IMPOSSIBLE, ...
+    created_at: datetime         # created_at < authorized_at < settled_at
+    authorized_at: datetime | None
+    settled_at: datetime | None
 ```
 
-### Fatura (Invoice) Model
+### Refund Model
 ```python
 @dataclass
-class Fatura:
-    """Provider invoice for services rendered."""
+class Refund:
+    """Refund/chargeback of a settled transaction."""
 
-    fatura_id: str
-    prestador_id: str            # FK to Prestador
-    competencia: str             # "2026-01"
-    valor_total: Decimal
-    valor_glosa: Decimal
-    valor_liquido: Decimal
-    quantidade_guias: int
-    status: str = "ABERTA"       # ABERTA, PROCESSADA, PAGA, CONTESTADA
-    dt_emissao: date
-    dt_pagamento: date | None
+    refund_id: str               # UUID
+    transaction_id: str          # FK to Transaction
+    refund_amount: Decimal       # <= transaction.amount
+    reason: str                  # FRAUD, NOT_RECOGNIZED, DUPLICATE, AMOUNT_ERROR, OTHER
+    initiated_by: str | None     # operator id ou null se automático
+    status: str = "REQUESTED"    # REQUESTED, APPROVED, REJECTED, SETTLED
     created_at: datetime
+    settled_at: datetime | None
+```
+
+### FraudAlert Model
+```python
+@dataclass
+class FraudAlert:
+    """Fraud detection alert (Flink MATCH_RECOGNIZE / ML_PREDICT output)."""
+
+    alert_id: str                # UUID
+    account_id: str              # FK to Account
+    transaction_ids: list[str]   # transactions that triggered the pattern
+    rule: str                    # RULE_VELOCITY, RULE_GEO_IMPOSSIBLE, RULE_AMOUNT_OUTLIER, RULE_NIGHT_OWL
+    fraud_score: float | None    # ML_PREDICT output (modulo 6), null se regra determinística
+    detected_at: datetime
 ```
 
 ## Common Models
@@ -164,18 +151,18 @@ class Endereco:
 
 ## Relationships
 
-### Domain examples (legacy: health insurance)
 ```
-Membro 1:N Dependente (via titular_id)
-Membro N:1 Plano
-Membro 1:N Guia
-Membro 1:N Mensalidade
-Guia 1:N GuiaItem
-Guia N:1 Prestador
-Prestador 1:N Contrato
-Prestador 1:N Fatura
-Fatura 1:N FaturaItem (linked to GuiaItem)
+Customer 1:N Account
+Account  1:N Card
+Account  1:N Transaction
+Card     1:N Transaction (via card_id, null p/ PIX)
+Merchant 1:N Transaction
+Transaction 0:1 Refund
+Transaction 0:N FraudAlert (via transaction_ids)
 ```
+
+Master entities (CDC no Postgres fonte): Customer, Account, Card, Merchant.
+Event entities (append-only): Transaction, Refund, FraudAlert.
 
 ## Event Modeling
 
@@ -186,7 +173,7 @@ class Event:
     """Standard event envelope."""
 
     event_id: str
-    event_type: str              # entity.action (e.g., guia.autorizada)
+    event_type: str              # entity.action (e.g., transaction.authorized)
     event_time: datetime
     source: str                  # Source system/connector that generated
     subject: str                 # Entity ID affected
@@ -194,26 +181,33 @@ class Event:
     metadata: dict = field(default_factory=dict)
 ```
 
-### Event Types — Health Insurance (legacy example)
+### Event Types — Payments
 
-#### Member Events
-- `membro.cadastrado` — New member enrolled
-- `membro.ativado` — Carencia period completed
-- `membro.suspenso` — Payment default
-- `membro.reativado` — Payment regularized
-- `membro.cancelado` — Plan cancelled
+#### Account Events
+- `account.opened` — Nova conta aberta
+- `account.suspended` — Suspensão (inadimplência/suspeita)
+- `account.reactivated` — Regularização
+- `account.closed` — Encerramento
 
-#### Authorization Events
-- `guia.solicitada` — Guide submitted
-- `guia.autorizada` — Guide approved
-- `guia.negada` — Guide denied
-- `guia.executada` — Procedure performed
-- `guia.faturada` — Claim submitted
-- `guia.glosada` — Claim denied/reduced
+#### Transaction Events
+- `transaction.created` — Transação iniciada
+- `transaction.authorized` — Autorizada pelo emissor
+- `transaction.declined` — Negada (saldo, suspeita, cartão vencido)
+- `transaction.settled` — Liquidada
+- `transaction.refunded` — Estornada
 
-#### Billing Events
-- `mensalidade.gerada` — Monthly bill generated
-- `mensalidade.paga` — Premium paid
-- `mensalidade.atrasada` — Payment overdue
-- `fatura.emitida` — Provider invoice issued
-- `fatura.paga` — Provider paid
+#### Fraud Events
+- `fraud.detected` — Padrão RULE_* disparado (Flink CEP, módulo 4)
+- `fraud.scored` — Score de modelo via ML_PREDICT (módulo 6)
+- `fraud.confirmed` — Confirmada por análise
+- `fraud.dismissed` — Falso positivo
+
+#### Refund Events
+- `refund.requested` — Estorno solicitado
+- `refund.approved` — Aprovado
+- `refund.rejected` — Rejeitado
+- `refund.settled` — Liquidado (compensação — padrão Saga, Live 2)
+
+---
+
+**Última atualização**: 2026-07-11

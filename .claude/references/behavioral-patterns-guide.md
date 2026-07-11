@@ -1,253 +1,210 @@
 # Behavioral Patterns Guide
 
-> **Domain logic for authorization flows, billing cycles, provider utilization, member lifecycle, and seasonality in Brazilian payments**
+> **Domain logic for transaction flows, refund cycles, account lifecycle, merchant patterns, fraud behavior, and seasonality in Brazilian payments**
 
-## 1. Authorization Flow (Guias TISS)
+## 1. Transaction Flow
 
 ### Overview
 
-Every business event flows through a state machine — e.g. a payment transaction goes PENDING → AUTHORIZED → SETTLED, or PENDING → DECLINED. Behavioural patterns model these state transitions realistically across time and produce the bulk of event-driven data.
+Every business event flows through a state machine — a payment transaction goes CREATED → AUTHORIZED → SETTLED, or CREATED → DECLINED. Behavioural patterns model these state transitions realistically across time and produce the bulk of event-driven data.
 
-### Guide Types & Realistic Values
+### Channels & Realistic Values
 
-| Type | Examples | Value Range (BRL) | Frequency |
-|------|----------|-------------------|-----------|
-| **CONSULTA** | Consulta eletiva, retorno | 80–250 | Most common |
-| **SP_SADT** | Exames lab, imagem, fisioterapia | 50–5,000 | High volume |
-| **INTERNACAO** | Internação clínica, cirúrgica | 2,000–100,000+ | Low volume, high value |
-| **ODONTOLOGICA** | Procedimentos dentários | 50–2,000 | Moderate |
-| **HONORARIOS** | Honorários médicos | 200–15,000 | Per procedure |
+| Channel | Examples | Value Range (BRL) | Frequency |
+|---------|----------|-------------------|-----------|
+| **PIX** | Transferências, pagamentos QR | 1–5,000 | Most common (~45%) |
+| **CREDIT** | Compras parceladas, e-commerce | 10–10,000 | High volume (~25%) |
+| **DEBIT** | Compras à vista, presencial | 5–2,000 | Moderate (~20%) |
+| **BOLETO** | Contas, assinaturas | 50–10,000 | Low volume (~10%) |
 
-### Authorization State Machine
+### Transaction State Machine
 
 ```python
-GUIA_TRANSITIONS = {
-    "SOLICITADA":   ["EM_ANALISE", "CANCELADA"],
-    "EM_ANALISE":   ["AUTORIZADA", "NEGADA", "PENDENTE_DOC"],
-    "PENDENTE_DOC": ["EM_ANALISE", "CANCELADA"],
-    "AUTORIZADA":   ["EXECUTADA", "CANCELADA"],
-    "NEGADA":       [],  # terminal
-    "EXECUTADA":    ["FATURADA"],
-    "FATURADA":     ["PAGA", "GLOSADA"],
-    "GLOSADA":      ["RECURSO", "PAGA_PARCIAL"],
-    "CANCELADA":    [],  # terminal
+TRANSACTION_TRANSITIONS = {
+    "CREATED":     ["AUTHORIZED", "DECLINED"],
+    "AUTHORIZED":  ["SETTLED", "CANCELLED"],
+    "DECLINED":    [],  # terminal
+    "SETTLED":     ["REFUNDED"],
+    "CANCELLED":   [],  # terminal
+    "REFUNDED":    [],  # terminal
 }
 
-# Transition probabilities
+# Transition probabilities (approval 92-97% — ver rules.md)
 TRANSITION_RATES = {
-    "SOLICITADA→EM_ANALISE": 0.95,
-    "SOLICITADA→CANCELADA": 0.05,
-    "EM_ANALISE→AUTORIZADA": 0.85,
-    "EM_ANALISE→NEGADA": 0.10,
-    "EM_ANALISE→PENDENTE_DOC": 0.05,
-    "AUTORIZADA→EXECUTADA": 0.92,
-    "AUTORIZADA→CANCELADA": 0.08,
-    "EXECUTADA→FATURADA": 1.00,
-    "FATURADA→PAGA": 0.88,
-    "FATURADA→GLOSADA": 0.12,
+    "CREATED→AUTHORIZED": 0.95,
+    "CREATED→DECLINED": 0.05,
+    "AUTHORIZED→SETTLED": 0.98,
+    "AUTHORIZED→CANCELLED": 0.02,
+    "SETTLED→REFUNDED": 0.02,
+}
+
+DECLINE_REASONS = {
+    "INSUFFICIENT_FUNDS": 0.55,
+    "SUSPECTED_FRAUD": 0.25,
+    "EXPIRED_CARD": 0.12,
+    "LIMIT_EXCEEDED": 0.08,
 }
 ```
 
 ### Processing Times
 
 ```python
-# Time between transitions (in hours)
+# Time between transitions
 PROCESSING_TIMES = {
-    "SOLICITADA→EM_ANALISE": {"min": 1, "max": 24},
-    "EM_ANALISE→AUTORIZADA": {"min": 2, "max": 72},
-    "EM_ANALISE→NEGADA": {"min": 4, "max": 48},
-    "AUTORIZADA→EXECUTADA": {"min": 24, "max": 720},   # 1-30 days
-    "EXECUTADA→FATURADA": {"min": 24, "max": 240},     # 1-10 days
-    "FATURADA→PAGA": {"min": 720, "max": 2160},        # 30-90 days
-    "FATURADA→GLOSADA": {"min": 720, "max": 1440},     # 30-60 days
+    "CREATED→AUTHORIZED": {"min_s": 0.1, "max_s": 5},        # authorization is near-real-time
+    "CREATED→DECLINED": {"min_s": 0.1, "max_s": 5},
+    "AUTHORIZED→SETTLED_PIX": {"min_s": 1, "max_s": 10},     # PIX liquida em segundos
+    "AUTHORIZED→SETTLED_DEBIT": {"min_h": 24, "max_h": 48},  # D+1
+    "AUTHORIZED→SETTLED_CREDIT": {"min_h": 24, "max_h": 720},# D+1 a D+30
+    "SETTLED→REFUNDED": {"min_h": 24, "max_h": 2160},        # 1-90 days (chargeback window)
 }
 ```
 
 ---
 
-## 2. Billing Cycles (Mensalidades)
+## 2. Refund / Chargeback Cycles
 
 ### Overview
 
-Every active member pays a monthly premium (mensalidade). This is the primary revenue stream for the health plan.
+~2% of settled transactions are refunded. Refunds are compensation events — the natural example for the Saga pattern (Live 2) and for retroactive corrections arriving late in the stream.
 
-### Payment Patterns
-
-```python
-# Due date distribution
-COMMON_DUE_DAYS = [5, 10, 15, 20, 25]
-
-# Payment behavior
-PAYMENT_BEHAVIOR = {
-    "on_time": 0.85,        # paid by due date
-    "late_1_5_days": 0.08,  # 1-5 days late
-    "late_6_30_days": 0.04, # 6-30 days late
-    "defaulted": 0.03,      # 30+ days, suspended
-}
-
-# Premium ranges by plan type
-PREMIUM_RANGES = {
-    "INDIVIDUAL": {"min": 200, "max": 800},
-    "FAMILIAR": {"min": 500, "max": 2500},
-    "EMPRESARIAL": {"min": 150, "max": 600},      # per member
-    "ADESAO": {"min": 250, "max": 1200},
-}
-
-# Annual adjustment (reajuste)
-ANNUAL_ADJUSTMENT = {
-    "INDIVIDUAL": 0.10,     # ~10% ANS regulated
-    "FAMILIAR": 0.10,
-    "EMPRESARIAL": 0.08,    # negotiated, lower
-    "ADESAO": 0.09,
-}
-```
-
-### Coparticipação (Copayment)
+### Refund Patterns
 
 ```python
-# Copayment percentages by procedure type
-COPARTICIPACAO_RATES = {
-    "CONSULTA": 0.30,          # 30% copay
-    "SP_SADT_SIMPLES": 0.20,   # 20% for simple exams
-    "SP_SADT_COMPLEXO": 0.10,  # 10% for complex exams
-    "INTERNACAO": 0.0,         # no copay for hospitalization
+# Refund reasons
+REFUND_REASONS = {
+    "FRAUD": 0.40,             # cardholder disputes as fraud
+    "NOT_RECOGNIZED": 0.30,    # cliente não reconheceu a compra
+    "DUPLICATE": 0.20,         # cobrança duplicada
+    "AMOUNT_ERROR": 0.07,      # valor errado
+    "OTHER": 0.03,
+}
+
+# Refund timing after settlement (days) — long tail
+REFUND_DELAY_DAYS = {"min": 1, "max": 90, "median": 7}
+
+# Refund resolution
+REFUND_RESOLUTION = {
+    "APPROVED": 0.70,
+    "REJECTED": 0.25,
+    "PARTIAL": 0.05,
 }
 ```
 
 ---
 
-## 3. Member Lifecycle
+## 3. Account Lifecycle
 
 ### State Transitions
 
 ```
 Event                    From         To          Rate
 ──────────────────────────────────────────────────────
-member.enrolled          —            CARENCIA    100% (new member)
-member.activated         CARENCIA     ATIVO       95% (after carencia period)
-member.suspended         ATIVO        SUSPENSO    3% (payment default)
-member.reactivated       SUSPENSO     ATIVO       60% (payment regularized)
-member.cancelled         ATIVO        CANCELADO   5% annual
-member.cancelled         SUSPENSO     CANCELADO   40% (90+ days suspended)
-member.portability       ATIVO        PORTAB      2% (transfer to another plan)
-```
-
-### Carencia (Waiting Period)
-
-```python
-# Mandatory waiting periods (ANS regulated)
-CARENCIA_PERIODS = {
-    "URGENCIA_EMERGENCIA": 24,       # 24 hours
-    "CONSULTAS": 180,                # 180 days (6 months)
-    "EXAMES_SIMPLES": 180,           # 180 days
-    "EXAMES_COMPLEXOS": 180,         # 180 days
-    "INTERNACAO": 180,               # 180 days
-    "PARTO": 300,                    # 300 days (10 months)
-    "DOENCA_PREEXISTENTE": 720,      # 720 days (24 months / CPT)
-    "ODONTOLOGIA": 180,              # 180 days
-}
+account.opened           —            ACTIVE      100% (new account)
+account.suspended        ACTIVE       SUSPENDED   2% annual (default/suspeita)
+account.reactivated      SUSPENDED    ACTIVE      60% (regularization)
+account.closed           ACTIVE       CLOSED      4% annual (voluntary)
+account.closed           SUSPENDED    CLOSED      40% (90+ days suspended)
 ```
 
 ### Event Generation
 
 ```python
 LIFECYCLE_EVENTS = {
-    "member.enrolled": {
-        "source": "cadastro",
-        "data": {"canal": "SITE|CORRETOR|EMPRESA", "plano_id": str}
+    "account.opened": {
+        "source": "onboarding",
+        "data": {"canal": "APP|SITE|AGENCIA", "tier": "BASIC|PLUS|PREMIUM"}
     },
-    "member.activated": {
-        "source": "beneficiarios",
-        "data": {"carencia_cumprida": bool}
+    "account.suspended": {
+        "source": "risk",
+        "data": {"motivo": "FRAUD_SUSPECT|DEFAULT", "dias_inadimplente": int}
     },
-    "member.suspended": {
-        "source": "faturamento",
-        "data": {"dias_inadimplente": int, "mensalidades_pendentes": int}
+    "account.reactivated": {
+        "source": "risk",
+        "data": {"revisado_por": str}
     },
-    "member.cancelled": {
-        "source": "beneficiarios",
-        "data": {"motivo": "VOLUNTARIO|INADIMPLENCIA|OBITO|PORTABILIDADE"}
+    "account.closed": {
+        "source": "onboarding",
+        "data": {"motivo": "VOLUNTARIO|INATIVIDADE|FRAUDE|OBITO"}
     },
 }
 ```
 
 ---
 
-## 4. Provider Utilization
+## 4. Merchant & Account Utilization
 
 ### Overview
 
-Prestadores (providers) have variable utilization patterns based on specialty, season, and capacity.
+Transaction volume is heavily skewed: few accounts and few merchants concentrate most of the volume (Pareto — ver rules.md).
 
 ### Utilization Patterns
 
 ```python
-# Monthly utilization rates per member
+# Transactions per account per month
 UTILIZATION_RATES = {
-    "CONSULTA": {"mean": 0.25, "std": 0.1},          # ~3 per year
-    "EXAME_LABORATORIAL": {"mean": 0.15, "std": 0.08}, # ~1.8 per year
-    "EXAME_IMAGEM": {"mean": 0.06, "std": 0.03},      # ~0.7 per year
-    "FISIOTERAPIA": {"mean": 0.03, "std": 0.02},       # ~0.4 per year
-    "INTERNACAO": {"mean": 0.008, "std": 0.005},       # ~0.1 per year
-    "CIRURGIA": {"mean": 0.005, "std": 0.003},         # ~0.06 per year
+    "heavy":  {"share": 0.20, "txn_month": (40, 150)},  # 20% accounts → 80% volume
+    "medium": {"share": 0.50, "txn_month": (5, 40)},
+    "light":  {"share": 0.30, "txn_month": (0, 5)},
 }
 
-# Age multipliers (higher utilization for elderly)
-AGE_UTILIZATION_MULTIPLIER = {
-    "0-18": 0.7,
-    "19-29": 0.5,
-    "30-49": 0.8,
-    "50-64": 1.5,
-    "65+": 2.5,
+# MCC concentration: top 10 MCCs ≈ 70% of volume
+MCC_CONCENTRATION = {
+    "5411": 0.18,  # supermercados
+    "5541": 0.11,  # combustível
+    "5812": 0.10,  # restaurantes
+    "5814": 0.08,  # fast food
+    "5912": 0.07,  # farmácias
+    # ... resto distribuído em long tail
 }
-```
 
-### Sinistralidade (Loss Ratio)
-
-```python
-def calculate_sinistralidade(total_claims: float, total_premiums: float) -> float:
-    """Calculate loss ratio (sinistralidade) for the health plan."""
-    if total_premiums == 0:
-        return 0.0
-    ratio = total_claims / total_premiums
-    return round(ratio, 4)
-
-# Healthy range
-SINISTRALIDADE_RANGES = {
-    "excellent": (0.0, 0.70),    # < 70% — very profitable
-    "healthy": (0.70, 0.80),     # 70-80% — target range
-    "concerning": (0.80, 0.90),  # 80-90% — needs attention
-    "critical": (0.90, 1.00),    # 90-100% — unsustainable
-    "loss": (1.00, float("inf")),# > 100% — operating at loss
+# Tier multipliers (higher volume/value for premium accounts)
+TIER_MULTIPLIER = {
+    "BASIC": 0.7,
+    "PLUS": 1.2,
+    "PREMIUM": 2.0,
 }
 ```
 
 ---
 
-## 5. Glosas (Claim Denials)
+## 5. Fraud Behavior (para labs de Flink CEP e ML_PREDICT)
 
 ### Overview
 
-12% of claims are partially or fully denied (glosadas). This is a critical metric for provider relations and operational efficiency.
+0.5–1.5% of transactions are fraudulent. Fraud is injected as coherent *bursts*, not isolated flags — each pattern below maps to a RULE_* indicator (rules.md) detectable via MATCH_RECOGNIZE (módulo 4) or scored via ML_PREDICT (módulo 6).
 
-### Glosa Types & Rates
+### Fraud Patterns & Injection
 
-| Type | Rate | Examples |
-|------|------|---------|
-| **ADMINISTRATIVA** | 60% | Missing documents, wrong codes, expired authorization |
-| **TECNICA** | 30% | Procedure not covered, exceeded quantity, incompatible CID/TUSS |
-| **FINANCEIRA** | 10% | Value above table, duplicate billing, calculation error |
-
-### Detection Rules
+| Pattern | Shape | Indicador |
+|---------|-------|-----------|
+| **Velocity** | 3+ transactions on same card in <60s, values escalating | `RULE_VELOCITY` |
+| **Geo impossible** | 2 transactions in different UFs within <10min | `RULE_GEO_IMPOSSIBLE` |
+| **Amount outlier** | Transaction > 10× the card's 90-day average | `RULE_AMOUNT_OUTLIER` |
+| **Night owl** | 02h–05h transaction on account with no nocturnal history | `RULE_NIGHT_OWL` |
 
 ```python
-GLOSA_RULES = {
-    "GUIA_EXPIRADA": lambda g: (datetime.now() - g.dt_autorizacao).days > 30,
-    "TUSS_INVALIDO": lambda g: not validate_tuss(g.codigo_tuss),
-    "CID_INCOMPATIVEL": lambda g: g.cid_10 not in TUSS_CID_MAPPING.get(g.codigo_tuss, []),
-    "VALOR_ACIMA_TABELA": lambda g: g.valor_cobrado > g.valor_tabela * 1.1,
-    "DUPLICIDADE": lambda g: has_duplicate_claim(g.membro_id, g.codigo_tuss, g.dt_execucao),
-    "QUANTIDADE_EXCEDIDA": lambda g: g.quantidade > MAX_QUANTITIES.get(g.codigo_tuss, 1),
+FRAUD_INJECTION = {
+    "RULE_VELOCITY": {
+        "rate": 0.004,
+        "burst_size": (3, 8),
+        "interval_s": (2, 20),
+        "amount_pattern": "escalating",   # R$50 → R$200 → R$800...
+    },
+    "RULE_GEO_IMPOSSIBLE": {
+        "rate": 0.003,
+        "uf_pairs": [("SP", "AM"), ("RS", "CE"), ("MG", "RR")],
+        "interval_min": (1, 10),
+    },
+    "RULE_AMOUNT_OUTLIER": {
+        "rate": 0.002,
+        "multiplier": (10, 50),           # vs card 90-day average
+    },
+    "RULE_NIGHT_OWL": {
+        "rate": 0.002,
+        "hour_range": (2, 5),
+        "requires": "no_night_history",
+    },
 }
 ```
 
@@ -255,62 +212,64 @@ GLOSA_RULES = {
 
 ## 6. Seasonal Patterns
 
-### Monthly Multipliers (example: Brazilian Health Insurance, legacy)
+### Monthly Multipliers (Brazilian payments)
 
-| Month | Utilization | Reason |
-|-------|-----------|--------|
-| **Jan** | 0.7x | Post-holiday, low demand |
-| **Feb** | 0.6x | Carnival week, reduced operations |
-| **Mar** | 1.0x | Normal baseline, back-to-routine |
-| **Apr** | 1.0x | Normal baseline |
-| **May** | 1.1x | Flu season beginning (Minas Gerais) |
-| **Jun** | 1.3x | Winter peak — respiratory diseases |
-| **Jul** | 1.4x | Peak flu/respiratory season |
-| **Aug** | 1.2x | Late winter respiratory |
-| **Sep** | 1.0x | Normal baseline |
-| **Oct** | 1.0x | Normal baseline |
-| **Nov** | 1.1x | Pre-end-of-year checkups |
-| **Dec** | 0.8x | Holiday period, elective procedures postponed |
+| Month | Volume | Reason |
+|-------|--------|--------|
+| **Jan** | 0.8x | Pós-festas, contas do início do ano |
+| **Feb** | 0.8x | Carnaval — consumo deslocado p/ lazer |
+| **Mar** | 1.0x | Baseline |
+| **Apr** | 1.0x | Baseline |
+| **May** | 1.1x | Dia das Mães |
+| **Jun** | 1.0x | Festas juninas (regional) |
+| **Jul** | 1.0x | Férias escolares |
+| **Aug** | 1.0x | Dia dos Pais |
+| **Sep** | 1.0x | Baseline |
+| **Oct** | 1.1x | Dia das Crianças |
+| **Nov** | 1.4x | **Black Friday** — pico do ano |
+| **Dec** | 1.3x | Natal + 13º salário |
 
 ### Implementation
 
 ```python
 SEASONAL_MULTIPLIERS = {
-    1: 0.7, 2: 0.6, 3: 1.0, 4: 1.0,
-    5: 1.1, 6: 1.3, 7: 1.4, 8: 1.2,
-    9: 1.0, 10: 1.0, 11: 1.1, 12: 0.8,
+    1: 0.8, 2: 0.8, 3: 1.0, 4: 1.0,
+    5: 1.1, 6: 1.0, 7: 1.0, 8: 1.0,
+    9: 1.0, 10: 1.1, 11: 1.4, 12: 1.3,
 }
 
 def apply_seasonality(
     base_count: int,
     month: int,
-    procedure_type: str = "general",
+    channel: str = "general",
 ) -> int:
-    """Adjust utilization count by seasonal multiplier."""
+    """Adjust transaction count by seasonal multiplier."""
     multiplier = SEASONAL_MULTIPLIERS.get(month, 1.0)
 
-    # Procedure-specific adjustments
-    if procedure_type == "INTERNACAO" and month in (6, 7):
-        multiplier *= 1.3  # extra winter hospitalization boost
-    elif procedure_type == "CONSULTA" and month in (11, 12):
-        multiplier *= 1.2  # end-of-year checkup rush
+    # Channel-specific adjustments
+    if channel == "CREDIT" and month == 11:
+        multiplier *= 1.3  # Black Friday e-commerce boost
+    elif channel == "PIX" and month == 12:
+        multiplier *= 1.2  # transferências de fim de ano
 
     return max(1, int(base_count * multiplier))
 ```
 
-### Day-of-Week Patterns
+### Day-of-Week / Hour Patterns
 
 ```python
-# Health service utilization by day of week
+# Transaction volume by day of week
 DAY_OF_WEEK_MULTIPLIERS = {
-    0: 1.2,   # Monday — highest (pent-up weekend demand)
-    1: 1.1,   # Tuesday — above average
+    0: 0.9,   # Monday
+    1: 0.9,   # Tuesday
     2: 1.0,   # Wednesday — baseline
-    3: 1.0,   # Thursday — baseline
-    4: 0.9,   # Friday — slightly below (shorter hours)
-    5: 0.3,   # Saturday — emergency/urgent only
-    6: 0.1,   # Sunday — emergency only
+    3: 1.0,   # Thursday
+    4: 1.3,   # Friday — payday + weekend prep
+    5: 1.2,   # Saturday — retail peak
+    6: 0.8,   # Sunday
 }
+
+# Intraday: bimodal — peaks 11–13h and 18–21h (horário de Brasília, ver rules.md)
 ```
 
 ---
@@ -318,17 +277,21 @@ DAY_OF_WEEK_MULTIPLIERS = {
 ## Quick Reference: All Patterns Combined
 
 ```
-Membro (L0)
-├── Mensalidade — 1x/month, CREDIT to plan
-│   └── 3% default → SUSPENSO after 60 days
-├── Dependentes (0-5) — each with own utilization
-├── Guias TISS (3-8/year) × seasonal multiplier
-│   ├── 85% authorized, 10% denied, 5% pending
-│   ├── CONSULTA 40%, SP_SADT 35%, INTERNACAO 10%, ODONTO 10%, HONORARIOS 5%
-│   ├── Each guia → 1-8 items (procedures)
-│   └── 12% of executed claims → glosa
-├── Member lifecycle (CARENCIA→ATIVO→SUSPENSO→CANCELADO)
-│   └── 5% annual voluntary cancellation
-├── Age-based utilization multiplier (0.5x young → 2.5x elderly)
-└── Sinistralidade target: 75-85%
+Account (L0)
+├── Cards (1-3) — each with own utilization
+├── Transactions (Pareto: 20% accounts → 80% volume) × seasonal multiplier
+│   ├── 95% authorized → 98% settled; 5% declined
+│   ├── PIX 45%, CREDIT 25%, DEBIT 20%, BOLETO 10%
+│   ├── Amounts log-normal (median ~R$80, tail até R$10K)
+│   └── 2% of settled → refund (40% por FRAUD)
+├── Fraud bursts (0.5–1.5%) — RULE_VELOCITY, RULE_GEO_IMPOSSIBLE,
+│   RULE_AMOUNT_OUTLIER, RULE_NIGHT_OWL
+├── Account lifecycle (ACTIVE→SUSPENDED→CLOSED)
+│   └── 4% annual voluntary closure
+├── Geo: UF da transação = UF do cartão em ≥85% dos casos
+└── Intraday bimodal: picos 11–13h e 18–21h
 ```
+
+---
+
+**Última atualização**: 2026-07-11

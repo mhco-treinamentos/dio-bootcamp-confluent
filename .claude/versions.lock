@@ -1,0 +1,71 @@
+# data-streaming-tour — Tooling Version Lock
+#
+# This file is the source of truth for tool versions used by .claude/ hooks
+# and by local development. Keep in sync with:
+#   - pyproject.toml / requirements.txt (Python deps)
+#   - terraform/versions.tf (Terraform + providers)
+#   - CI workflow files (GitHub Actions / GitLab CI)
+#
+# Last reviewed: 2026-04-16
+
+# === Python toolchain ===
+python          = "3.11"
+ruff            = "0.4.4"      # lint + import sort + format
+black           = "24.4.2"     # formatter, --line-length 100
+mypy            = "1.10.0"     # strict on library code
+pytest          = "8.2.0"
+pytest-cov      = "5.0.0"
+hypothesis      = "6.100.0"    # property-based tests
+testcontainers  = "4.4.0"      # Kafka + Oracle + Schema Registry fixtures
+
+# === Infrastructure as Code ===
+terraform       = "1.7.5"
+provider-aws    = "5.40.0"     # hashicorp/aws
+provider-conf   = "1.80.0"     # confluentinc/confluent
+provider-snow   = "0.94.0"     # Snowflake-Labs/snowflake
+
+# === Confluent / Kafka ===
+confluent-cli          = "3.65.0"   # `confluent` CLI binary
+confluent-kafka-python = "2.4.0"    # librdkafka wrapper
+avro                   = "1.11.3"   # Avro schema library
+schema-registry        = "7.6.x"    # Confluent Cloud Advanced package
+
+# === Snowflake ===
+snowsql                = "1.3.1"
+snowflake-connector-py = "3.10.0"
+
+# === Oracle CDC ===
+debezium-oracle-conn   = "2.5.4"    # Debezium Oracle connector (only version stable with XE 21c LogMiner)
+oracle-jdbc            = "23.3.0.23.09"
+python-oracledb        = "2.0.1"    # Thin-mode driver for Oracle-direct simulators (workshop)
+
+# === Workshop stack (ws-fundamentals-kafka-cdc) ===
+# Narrow compatibility window — test before upgrading. See references/workshop-stack-guide.md.
+oracle-xe              = "21-slim-faststart"   # gvenzl/oracle-xe image, Oracle 21c
+confluent-community    = "7.6.0"               # Kafka 3.6.x, Schema Registry 7.6.0, Connect 7.6.0
+flink                  = "1.19.1"              # image: flink:1.19.1-scala_2.12-java11 (Java 11, NOT 17)
+flink-connector-kafka  = "3.1.0-1.19"
+flink-avro-confluent   = "1.19.1"              # flink-sql-avro-confluent-registry
+iceberg-flink-runtime  = "1.5.2"               # iceberg-flink-runtime-1.19
+nessie                 = "0.79.0"              # REST catalog for Iceberg 1.5.x
+trino                  = "435"                 # Iceberg + Nessie REST support
+minio                  = "RELEASE.2024-04-06"  # S3-compatible object store
+superset               = "3.1"                 # Apache Superset for BI
+
+# === Tooling for hooks ===
+# These must be in PATH for .claude/hooks/*.sh to work. Hooks fail-open if
+# a tool is missing (except the CHANGELOG guard, which is purely bash+jq+git).
+jq              = "1.7"
+git             = "2.44"
+bash            = "5"
+
+# === How hooks use this file ===
+# The hook scripts do NOT read this file directly (they check `command -v` and
+# fail open). This file exists to:
+#   1. Give contributors a single reference for "which versions were this green"
+#   2. Support pre-commit-config.yaml parity when the team adds one
+#   3. Anchor the CHANGELOG-worthy moments when we bump a toolchain version
+#
+# To upgrade a tool: edit this file, bump the pinned version in the consuming
+# config (pyproject.toml, versions.tf, CI workflow), run the test suite, and
+# log the upgrade in CHANGELOG.md under ### Changed.

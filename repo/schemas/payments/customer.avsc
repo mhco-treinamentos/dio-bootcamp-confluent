@@ -1,0 +1,110 @@
+{
+  "type": "record",
+  "name": "Customer",
+  "namespace": "com.bootcamp.payments.customers",
+  "doc": "Cliente pessoa física (entidade master — fonte CDC no Postgres legado). Dados 100% sintéticos.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "UUID único por evento"},
+    {
+      "name": "event_time",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o evento de negócio ocorreu"
+    },
+    {"name": "customer_id", "type": "string", "doc": "UUID do cliente"},
+    {
+      "name": "cpf",
+      "type": "string",
+      "doc": "CPF sem pontuação (11 dígitos, check digit válido)",
+      "confluent:tags": ["PII", "LGPD"]
+    },
+    {
+      "name": "nome",
+      "type": "string",
+      "doc": "Nome completo do titular",
+      "confluent:tags": ["PII", "LGPD"]
+    },
+    {
+      "name": "data_nascimento",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "Data de nascimento",
+      "confluent:tags": ["PII", "LGPD"]
+    },
+    {
+      "name": "email",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "E-mail de contato",
+      "confluent:tags": ["PII", "LGPD"]
+    },
+    {
+      "name": "telefone",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Telefone em formato +55XXXXXXXXXXX",
+      "confluent:tags": ["PII", "LGPD"]
+    },
+    {
+      "name": "endereco",
+      "confluent:tags": ["PII", "LGPD"],
+      "doc": "Endereço residencial",
+      "type": {
+        "type": "record",
+        "name": "Endereco",
+        "doc": "Endereço brasileiro",
+        "fields": [
+          {
+            "name": "logradouro",
+            "type": "string",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {
+            "name": "numero",
+            "type": "string",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {"name": "complemento", "type": "string", "default": ""},
+          {
+            "name": "bairro",
+            "type": "string",
+            "default": "",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {
+            "name": "cidade",
+            "type": "string",
+            "default": "",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {"name": "uf", "type": "string", "default": "", "doc": "Sigla de 2 letras (ex: MG)"},
+          {
+            "name": "cep",
+            "type": "string",
+            "default": "",
+            "doc": "CEP sem pontuação (8 dígitos)",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {"name": "pais", "type": "string", "default": "BR"}
+        ]
+      }
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "CustomerStatus",
+        "symbols": ["ACTIVE", "SUSPENDED", "CLOSED"]
+      },
+      "default": "ACTIVE"
+    },
+    {
+      "name": "created_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o registro foi criado"
+    },
+    {
+      "name": "updated_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Última atualização do registro"
+    }
+  ]
+}

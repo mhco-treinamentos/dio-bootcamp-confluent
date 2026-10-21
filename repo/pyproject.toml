@@ -1,0 +1,63 @@
+[project]
+name = "bootcamp-confluent"
+version = "0.1.0"
+description = "Bootcamp Confluent Cloud 2026 — datasets sintéticos, geradores e labs (domínio payments/fraude)"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "faker>=25.0,<26",
+    "confluent-kafka[avro]==2.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.2.0",
+    "pytest-cov==5.0.0",
+    "hypothesis==6.100.0",
+    "ruff==0.4.4",
+    "black==24.4.2",
+    "mypy==1.10.0",
+]
+cdc = [
+    # Seed/simulador do Postgres (Neon) — labs do modulo-03
+    "psycopg[binary]>=3.1,<3.2",
+]
+
+[tool.setuptools]
+packages = [
+    "dataset",
+    "dataset.generators",
+    "dataset.generators.common",
+    "dataset.generators.payments",
+    "dataset.neon",
+    "producers",
+    "consumers",
+    "demos",
+    "demos.curso1",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+# strict em código de shared/ (ver .claude/rules/python.md); relaxado em scripts de lab
+strict = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --cov=dataset --cov=producers --cov=consumers --cov-report=term-missing"

@@ -1,0 +1,97 @@
+{
+  "type": "record",
+  "name": "Merchant",
+  "namespace": "com.bootcamp.payments.merchants",
+  "doc": "Estabelecimento comercial que aceita pagamentos (entidade master — fonte CDC). Dados 100% sintéticos.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "UUID único por evento"},
+    {
+      "name": "event_time",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o evento de negócio ocorreu"
+    },
+    {"name": "merchant_id", "type": "string", "doc": "UUID do estabelecimento"},
+    {
+      "name": "cnpj",
+      "type": "string",
+      "doc": "CNPJ sem pontuação (14 dígitos, check digit válido)",
+      "confluent:tags": ["PII", "LGPD"]
+    },
+    {"name": "nome_fantasia", "type": "string", "doc": "Nome fantasia do estabelecimento"},
+    {
+      "name": "mcc",
+      "type": "string",
+      "doc": "Merchant Category Code — 4 dígitos, preserva zeros à esquerda (ISO 18245)",
+      "confluent:tags": ["FIN"]
+    },
+    {
+      "name": "uf",
+      "type": "string",
+      "doc": "UF do estabelecimento (2 letras)",
+      "confluent:tags": ["PII", "LGPD", "LOCATION"]
+    },
+    {
+      "name": "endereco",
+      "confluent:tags": ["PII", "LGPD"],
+      "doc": "Endereço comercial",
+      "type": {
+        "type": "record",
+        "name": "EnderecoComercial",
+        "doc": "Endereço brasileiro",
+        "fields": [
+          {
+            "name": "logradouro",
+            "type": "string",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {
+            "name": "numero",
+            "type": "string",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {"name": "complemento", "type": "string", "default": ""},
+          {
+            "name": "bairro",
+            "type": "string",
+            "default": "",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {
+            "name": "cidade",
+            "type": "string",
+            "default": "",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {"name": "uf", "type": "string", "default": "", "doc": "Sigla de 2 letras (ex: MG)"},
+          {
+            "name": "cep",
+            "type": "string",
+            "default": "",
+            "doc": "CEP sem pontuação (8 dígitos)",
+            "confluent:tags": ["PII", "LGPD"]
+          },
+          {"name": "pais", "type": "string", "default": "BR"}
+        ]
+      }
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "MerchantStatus",
+        "symbols": ["ACTIVE", "SUSPENDED", "CLOSED"]
+      },
+      "default": "ACTIVE"
+    },
+    {
+      "name": "created_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o registro foi criado"
+    },
+    {
+      "name": "updated_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Última atualização do registro"
+    }
+  ]
+}

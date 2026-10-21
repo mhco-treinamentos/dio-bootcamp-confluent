@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "PedidoCriado",
+  "namespace": "com.bootcamp.pedidos",
+  "fields": [
+    {"name": "order_id", "type": "string"},
+    {"name": "customer_id", "type": "string"},
+    {"name": "total", "type": "double"},
+    {"name": "canal", "type": ["null","string"], "default": null}
+  ]
+}

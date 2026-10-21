@@ -1,0 +1,32 @@
+[
+  {
+    "comentario": "op=c — INSERT capturado: before nulo, after com a linha nova",
+    "op": "c",
+    "ts_ms": 1788220145112,
+    "source": {"db": "neondb", "schema": "payments", "table": "transactions"},
+    "before": null,
+    "after": {
+      "transaction_id": "9f2c1a7e-4b31-4c02-9d3e-7a1b2c3d4e5f",
+      "account_id": "e465e150-bd9c-46b3-ad3c-2d6d1a3d1fa7",
+      "amount": "150.00",
+      "currency": "BRL",
+      "status": "SETTLED"
+    }
+  },
+  {
+    "comentario": "op=u — UPDATE: before PREENCHIDO gracas ao REPLICA IDENTITY FULL",
+    "op": "u",
+    "ts_ms": 1788220199847,
+    "source": {"db": "neondb", "schema": "payments", "table": "accounts"},
+    "before": {"account_id": "e465e150-bd9c-46b3-ad3c-2d6d1a3d1fa7", "status": "ACTIVE"},
+    "after":  {"account_id": "e465e150-bd9c-46b3-ad3c-2d6d1a3d1fa7", "status": "BLOCKED"}
+  },
+  {
+    "comentario": "op=d — DELETE: after nulo; na sequencia vem o tombstone (value null)",
+    "op": "d",
+    "ts_ms": 1788220231503,
+    "source": {"db": "neondb", "schema": "payments", "table": "cards"},
+    "before": {"card_id": "16419f82-8b9d-4434-a465-e150bd9c66b3"},
+    "after": null
+  }
+]

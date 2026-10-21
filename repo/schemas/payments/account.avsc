@@ -1,0 +1,79 @@
+{
+  "type": "record",
+  "name": "Account",
+  "namespace": "com.bootcamp.payments.accounts",
+  "doc": "Conta corrente/pagamento (entidade master — fonte CDC no Postgres legado). Dados 100% sintéticos.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "UUID único por evento"},
+    {
+      "name": "event_time",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o evento de negócio ocorreu"
+    },
+    {"name": "account_id", "type": "string", "doc": "UUID da conta"},
+    {"name": "customer_id", "type": "string", "doc": "FK para Customer"},
+    {
+      "name": "agencia",
+      "type": "string",
+      "doc": "Agência (4 dígitos)",
+      "confluent:tags": ["PII", "LGPD", "FIN"]
+    },
+    {
+      "name": "conta",
+      "type": "string",
+      "doc": "Número da conta (até 13 dígitos, inclui DV, sem máscara)",
+      "confluent:tags": ["PII", "LGPD", "FIN"]
+    },
+    {
+      "name": "tier",
+      "type": {
+        "type": "enum",
+        "name": "AccountTier",
+        "symbols": ["BASIC", "PLUS", "PREMIUM"]
+      },
+      "default": "BASIC"
+    },
+    {
+      "name": "balance",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 15, "scale": 2},
+      "doc": "Saldo em BRL — nunca float",
+      "confluent:tags": ["FIN"]
+    },
+    {
+      "name": "overdraft_limit",
+      "type": {"type": "bytes", "logicalType": "decimal", "precision": 15, "scale": 2},
+      "doc": "Cheque especial contratado (0.00 se não contratado)",
+      "confluent:tags": ["FIN"]
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "AccountStatus",
+        "symbols": ["ACTIVE", "SUSPENDED", "CLOSED"]
+      },
+      "default": "ACTIVE"
+    },
+    {
+      "name": "opened_at",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "Data de abertura"
+    },
+    {
+      "name": "closed_at",
+      "type": ["null", {"type": "int", "logicalType": "date"}],
+      "default": null,
+      "doc": "Data de encerramento (null se ativa)"
+    },
+    {
+      "name": "created_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o registro foi criado"
+    },
+    {
+      "name": "updated_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Última atualização do registro"
+    }
+  ]
+}

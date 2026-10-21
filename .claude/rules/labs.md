@@ -122,6 +122,7 @@ Evitar:
 - ❌ Lab que depende de estado de outro lab sem seção "Replay rápido"
 - ❌ API key de admin usada no producer — service account least-privilege por lab
 - ❌ Screenshots da Console como única referência (aluno não faz grep em screenshot) — sempre o comando CLI equivalente
+  - ✅ O padrão dos guias é a dupla **🖱 Pela Console** (caminho de cliques, sem screenshot — é o que a aula gravada mostra) seguida de **⌨️ Pela CLI** (comando + output esperado, a fonte de verdade). Caminho de UI desatualiza sem quebrar o lab; o comando ao lado garante a reprodutibilidade
 - ❌ Portas/IDs mágicos sem explicação (todo `<cluster-id>` mostra de onde veio)
 - ❌ "Recrie o cluster" como fix real — diagnostique o problema de verdade
 - ❌ Efeitos colaterais não documentados (setup que silenciosamente cria um service account extra)

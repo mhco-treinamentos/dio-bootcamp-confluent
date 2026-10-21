@@ -1,0 +1,84 @@
+{
+  "type": "record",
+  "name": "Card",
+  "namespace": "com.bootcamp.payments.cards",
+  "doc": "Cartão de crédito/débito vinculado a uma conta (entidade master — fonte CDC). Dados 100% sintéticos; PAN completo NUNCA existe, nem em memória.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "UUID único por evento"},
+    {
+      "name": "event_time",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o evento de negócio ocorreu"
+    },
+    {"name": "card_id", "type": "string", "doc": "UUID do cartão"},
+    {"name": "account_id", "type": "string", "doc": "FK para Account"},
+    {
+      "name": "pan_masked",
+      "type": "string",
+      "doc": "PAN mascarado: BIN(6) + ****** + last4 (ex: 401712******4242). PAN completo NUNCA deve aparecer em topic.",
+      "confluent:tags": ["PCI", "PCI_DSS"]
+    },
+    {
+      "name": "brand",
+      "type": {
+        "type": "enum",
+        "name": "CardBrand",
+        "symbols": ["VISA", "MASTERCARD", "ELO", "HIPERCARD"]
+      },
+      "doc": "Bandeira do cartão"
+    },
+    {
+      "name": "card_type",
+      "type": {
+        "type": "enum",
+        "name": "CardType",
+        "symbols": ["CREDIT", "DEBIT", "MULTIPLE"]
+      }
+    },
+    {
+      "name": "credit_limit",
+      "type": [
+        "null",
+        {"type": "bytes", "logicalType": "decimal", "precision": 15, "scale": 2}
+      ],
+      "default": null,
+      "doc": "Limite de crédito em BRL (null para débito puro)",
+      "confluent:tags": ["FIN"]
+    },
+    {
+      "name": "uf_emissao",
+      "type": "string",
+      "doc": "UF de emissão (2 letras) — correlaciona com a UF da transação (regras geo de fraude)",
+      "confluent:tags": ["PII", "LGPD", "LOCATION"]
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "CardStatus",
+        "symbols": ["ACTIVE", "BLOCKED", "EXPIRED", "CANCELLED"]
+      },
+      "default": "ACTIVE"
+    },
+    {
+      "name": "issued_at",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "Data de emissão"
+    },
+    {
+      "name": "expires_at",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "Data de expiração"
+    },
+    {
+      "name": "created_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Quando o registro foi criado"
+    },
+    {
+      "name": "updated_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Última atualização do registro"
+    }
+  ]
+}

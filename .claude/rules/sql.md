@@ -94,7 +94,7 @@ MATCH_RECOGNIZE (
     COUNT(T.transaction_id) AS txn_count
   ONE ROW PER MATCH
   AFTER MATCH SKIP PAST LAST ROW
-  PATTERN (T{3,}) WITHIN INTERVAL '60' SECOND
+  PATTERN (T{3,}?) WITHIN INTERVAL '60' SECOND
   DEFINE
     T AS T.amount > 0
 );
@@ -102,6 +102,8 @@ MATCH_RECOGNIZE (
 
 - `PARTITION BY` sempre na chave de negócio (card_id, account_id) — nunca sem partição
 - `AFTER MATCH SKIP PAST LAST ROW` como default (evita matches sobrepostos duplicando alertas)
+- Quantificador no FIM do pattern precisa ser **reluctant** (`{3,}?`) — o Flink recusa greedy como último elemento (`Greedy quantifiers are not allowed as the last element`); o reluctant também emite o alerta na 3ª ocorrência, sem esperar a janela
+- Entrada do MATCH_RECOGNIZE precisa ser **append-only** — sobre tabela derivada de CDC/join upsert, primeiro `ALTER TABLE ... SET ('changelog.mode' = 'append')` (validado no Confluent Cloud, 2026-09-04)
 - Regras determinísticas (`RULE_VELOCITY`, `RULE_GEO_IMPOSSIBLE`) → MATCH_RECOGNIZE; classificação probabilística → `ML_PREDICT` (módulo 6)
 
 ## State TTL

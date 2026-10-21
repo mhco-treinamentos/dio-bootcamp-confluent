@@ -1,0 +1,79 @@
+# Sandbox local do bootcamp — Kafka single-broker em KRaft + Schema Registry.
+#
+# Casa pedagógica: demos do Curso 1 (conceitos de log, partições, consumer
+# groups, ordem e entrega) e fallback offline para gravar sem gastar créditos.
+#
+# ⚠️ Limite honesto deste sandbox (dizer em voz alta ao gravar): com UM broker,
+# RF=1 e não há ISR. As âncoras de confiabilidade do bootcamp (RF=3,
+# min.insync.replicas=2) NÃO são demonstráveis aqui — são conceito no Curso 1
+# e realidade no Confluent Cloud a partir do Curso 2.
+#
+# Uso:
+#   docker compose -f deployment/docker/docker-compose.yml up -d
+#   docker compose -f deployment/docker/docker-compose.yml down -v
+
+name: bootcamp-confluent
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: bootcamp-kafka
+    ports:
+      - "9092:9092"   # listener para clients no host (producers/consumers Python)
+    environment:
+      # --- KRaft: sem ZooKeeper, o broker também é controller ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # UUID base64 de 16 bytes (o KRaft exige este formato — texto livre falha
+      # no preflight). Fixo de propósito: o cluster id sobrevive ao `down -v`.
+      CLUSTER_ID: obLD1OX2ShuMLT5PWmt8jQ
+
+      # --- Listeners: PLAINTEXT_HOST para o host, PLAINTEXT entre containers ---
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # --- Single broker: tudo com RF=1 (impossível replicar com 1 nó) ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0   # rebalance imediato: demo da Aula 4
+
+      # --- Criação automática DESLIGADA: topics são criados explicitamente,
+      #     com partições escolhidas a dedo (a lição da Aula 3) ---
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      # --- Segments pequenos: a demo da Aula 3 precisa ver mais de um
+      #     arquivo .log no disco sem produzir milhões de mensagens ---
+      KAFKA_LOG_SEGMENT_BYTES: 1048576            # 1 MB (default é 1 GB)
+      KAFKA_LOG_RETENTION_HOURS: 168              # 7 dias — retention visível no describe
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    container_name: bootcamp-schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      # BACKWARD é o default do bootcamp (Curso 2, Aula 3) — mesmo no local
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 10s

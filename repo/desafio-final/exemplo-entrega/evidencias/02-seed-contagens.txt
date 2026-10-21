@@ -1,0 +1,13 @@
+-- Validação do seed determinístico (seed=42), capturada pós 02_seed.sql:
+
+ customers | accounts | cards | merchants | transactions
+-----------+----------+-------+-----------+--------------
+       200 |      240 |   320 |        60 |         2000
+(1 row)
+
+-- E a conexão que o conector usa (cdc_user, menor privilégio):
+
+ current_user | pode_ler
+--------------+----------
+ cdc_user     |     2000
+(1 row)

@@ -2,5 +2,22 @@
 __pycache__/
 *.pyc
 .env
+.venv/
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 *.tfstate*
 .terraform/
+
+# PyCharm: as run configurations em repo/.run/ SÃO versionadas (fazem parte do material)
+.idea/
+
+# Gravações e mídia pesada — nunca no Git (27 GB)
+Videos/
+*.mp4
+*.mov
+*.mkv
+*.wav
+

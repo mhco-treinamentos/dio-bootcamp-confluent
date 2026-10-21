@@ -1,0 +1,23 @@
+{
+  "name": "pg-payments-cdc",
+  "connector.class": "PostgresCdcSourceV2",
+  "kafka.auth.mode": "SERVICE_ACCOUNT",
+  "kafka.service.account.id": "sa-xxxxx",
+  "database.hostname": "ep-xxxxx.us-east-1.aws.neon.tech",
+  "database.port": "5432",
+  "database.user": "cdc_user",
+  "database.password": "SUA-SENHA",
+  "database.dbname": "neondb",
+  "database.sslmode": "require",
+  "topic.prefix": "pg-payments",
+  "table.include.list": "payments.transactions",
+  "publication.name": "bootcamp_cdc_pub",
+  "slot.name": "bootcamp_cdc_slot",
+  "snapshot.mode": "initial",
+  "decimal.handling.mode": "precise",
+  "tombstones.on.delete": "true",
+  "heartbeat.interval.ms": "10000",
+  "output.data.format": "AVRO",
+  "output.key.format": "AVRO",
+  "tasks.max": "1"
+}

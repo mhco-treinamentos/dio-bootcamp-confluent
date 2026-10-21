@@ -1,0 +1,11 @@
+{
+  "name": "datagen-transactions",
+  "connector.class": "DatagenSource",
+  "kafka.auth.mode": "SERVICE_ACCOUNT",
+  "kafka.service.account.id": "sa-qr0p322",
+  "kafka.topic": "lab.transactions.datagen",
+  "output.data.format": "AVRO",
+  "quickstart": "TRANSACTIONS",
+  "max.interval": "1000",
+  "tasks.max": "1"
+}

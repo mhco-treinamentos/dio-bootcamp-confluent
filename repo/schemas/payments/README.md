@@ -4,7 +4,7 @@ Schemas Avro do domínio payments, namespace `com.bootcamp.payments.*`. São o
 **contrato** entre quem produz e quem consome — o Curso 2 (Aula 3) mostra o Schema
 Registry aceitando e **recusando** evoluções destes arquivos.
 
-Convenções (detalhes em [.claude/rules/schemas.md](../../../.claude/rules/schemas.md)):
+Convenções:
 
 - **Subject**: `{topic}-value` (TopicNameStrategy); compatibilidade **BACKWARD**
 - **Dinheiro**: `bytes` + `logicalType: decimal(15,2)` — nunca float

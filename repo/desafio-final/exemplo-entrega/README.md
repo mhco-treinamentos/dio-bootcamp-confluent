@@ -22,7 +22,7 @@ partir do `.env.example`).
 
 ## Camada 2 — Contrato de dados
 
-Schemas em [`schemas/`](schemas/), namespace `com.bootcamp.payments.*`, money como
+Schemas em `schemas/` (do seu repo), namespace `com.bootcamp.payments.*`, money como
 `bytes`+`decimal(15,2)`, tags de PII/PCI nos campos sensíveis.
 
 Evolução BACKWARD demonstrada nos dois sentidos:
@@ -55,7 +55,7 @@ Os três tipos de evento capturados — envelopes completos em
 
 ## Camada 4 — Processamento (Flink SQL)
 
-Statements em [`sql/`](sql/): temporal join transações ⋈ contas (PK nos dois lados,
+Statements em `sql/` (do seu repo): temporal join transações ⋈ contas (PK nos dois lados,
 `sql.tables.scan.idle-timeout=5s`) e `RULE_VELOCITY` via `MATCH_RECOGNIZE`
 (`PATTERN (T{3,}?) WITHIN INTERVAL '60' SECOND`, `PARTITION BY card_id`).
 

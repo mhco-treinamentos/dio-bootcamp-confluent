@@ -49,7 +49,7 @@ python -m dataset.neon.generate_seed   # regenera o seed SQL (seed=42)
 
 ## Regras do projeto
 
-Padrões de código, schemas, labs e teardown vivem em [.claude/rules.md](../.claude/rules.md) e [.claude/rules/](../.claude/rules/). Destaques inegociáveis:
+Padrões inegociáveis do projeto:
 
 - Dinheiro sempre `Decimal` / Avro `bytes+decimal` — nunca float
 - PAN sempre mascarado (BIN + last4); CVV/PIN proibidos até em dado sintético

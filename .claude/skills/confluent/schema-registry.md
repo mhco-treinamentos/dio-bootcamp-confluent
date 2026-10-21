@@ -76,10 +76,10 @@ confluent schema-registry schema list \
 ### Registrar
 
 ```bash
-# Avro (arquivo .avsc versionado em repo/shared/schemas/payments/)
+# Avro (arquivo .avsc versionado em repo/schemas/payments/)
 confluent schema-registry schema create \
   --subject dev.payments.gen.transactions.created.v1-value \
-  --schema ./shared/schemas/payments/transaction_created.avsc \
+  --schema ./schemas/payments/transaction_created.avsc \
   --type avro
 
 # JSON Schema / Protobuf
@@ -159,7 +159,7 @@ else:  # fallback local — ver local-dev-fallback.md
 
 sr_client = SchemaRegistryClient(sr_conf)
 
-with open("shared/schemas/payments/transaction_created.avsc") as f:
+with open("schemas/payments/transaction_created.avsc") as f:
     schema = Schema(f.read(), "AVRO")
 schema_id = sr_client.register_schema(
     "dev.payments.gen.transactions.created.v1-value", schema

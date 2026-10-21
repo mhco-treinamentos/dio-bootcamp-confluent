@@ -6,7 +6,7 @@ globs: "**/labs/**,**/desafio-final/**"
 
 > **Padrões pedagógicos para os labs do bootcamp: passos verificáveis, seções time-boxed e teardown de recursos cloud.**
 
-Aplica-se a tudo sob `repo/labs/modulo-0X-*/` e `repo/desafio-final/`. Labs são **artefatos de ensino** — correção, reprodutibilidade e disciplina de créditos importam mais que elegância. Cada lab corresponde a um curso do bootcamp (modulo-02..07) e é uma camada do Desafio Final (build-as-you-go).
+Aplica-se aos guias de aula sob `repo/docs/cursoN/` (que são os labs do bootcamp) e a `repo/desafio-final/`. Labs são **artefatos de ensino** — correção, reprodutibilidade e disciplina de créditos importam mais que elegância. Cada curso tem seus guias-lab e o conjunto culmina no Desafio Final (build-as-you-go).
 
 ## Estrutura
 
@@ -74,7 +74,7 @@ O cluster básico e o environment da Aula 0 são compartilhados entre labs — o
 
 - Cada lab declara no README de quais camadas anteriores depende (ex.: modulo-04 depende dos topics CDC do modulo-03)
 - Se o aluno fez teardown do lab anterior, o README DEVE ter uma seção **"Replay rápido"**: comandos mínimos para recriar o estado necessário (rodar o gerador com `seed=42`, reaplicar o setup do conector) sem refazer o lab inteiro
-- O Desafio Final referencia os labs por camada — nunca duplica código que já vive em `repo/shared/`
+- O Desafio Final referencia os labs por camada — nunca duplica código que já vive em `repo/dataset/` e `repo/schemas/`
 
 ## Versões
 

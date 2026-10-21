@@ -7,7 +7,7 @@ globs: "**/*.py"
 ## Style
 - Formatter: Black (line length: 100)
 - Linter: Ruff
-- Type checker: mypy (strict em código de `shared/`; relaxado em scripts de lab)
+- Type checker: mypy (strict em código de `dataset/`, `producers/` e `consumers/`; relaxado em scripts de lab)
 - Type hints: obrigatórios em toda função pública
 - Docstrings: estilo NumPy
 
@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 ## Performance
 - Generators/iterators para grandes volumes — nunca `list()` em streams sem fim
 - `@lru_cache` para lookups repetidos (tabela MCC, BIN ranges, lista de UFs)
-- Pré-gerar pools de Faker para dados sintéticos (ver `FakerPool` em `shared/generators/`)
+- Pré-gerar pools de Faker para dados sintéticos (ver `FakerPool` em `dataset/generators/`)
 
 ## LGPD / Pagamentos
 - CPF, CNPJ, nome, endereço, telefone, email — **PII**, taggear na ingestão

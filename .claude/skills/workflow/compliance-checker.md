@@ -118,7 +118,7 @@ done
 
 ```bash
 # .avsc com cpf/email/pan sem confluent:tags
-grep -rlE '"name":\s*"(cpf|cnpj|email|phone|card_pan)' repo/shared/schemas/ \
+grep -rlE '"name":\s*"(cpf|cnpj|email|phone|card_pan)' repo/schemas/ \
   | xargs grep -L "confluent:tags" || echo "OK: todos os campos sensíveis taggeados"
 ```
 

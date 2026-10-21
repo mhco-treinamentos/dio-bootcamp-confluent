@@ -93,7 +93,7 @@ confluent kafka topic produce dev.payments.gen.transactions.created.v1 \
 # Producer Avro integrado ao Schema Registry
 confluent kafka topic produce dev.payments.gen.transactions.created.v1 \
   --value-format avro \
-  --schema ./shared/schemas/payments/transaction_created.avsc
+  --schema ./schemas/payments/transaction_created.avsc
 
 # Consumer
 confluent kafka topic consume dev.payments.gen.transactions.created.v1 --from-beginning

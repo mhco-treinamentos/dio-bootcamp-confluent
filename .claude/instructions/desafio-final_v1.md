@@ -14,13 +14,13 @@ Postgres ──CDC──► Managed Connect ──► Kafka + SR ──► Flink
                                           └──► Observabilidade (Metrics API, lag — Curso 7)
 ```
 
-Regra de ouro: o Desafio Final **compõe** o que os labs construíram — reusa `repo/shared/` e referencia os labs; nunca duplica código.
+Regra de ouro: o Desafio Final **compõe** o que os labs construíram — reusa `repo/dataset/` + `repo/schemas/` e referencia os labs; nunca duplica código.
 
 ## Pré-requisitos
 
 - Aula 0 concluída ([cloud-setup_v1.md](cloud-setup_v1.md))
 - Labs das camadas anteriores à que você vai construir existem (ou suas seções "Replay rápido")
-- Geradores e schemas em `repo/shared/` prontos
+- Geradores em `repo/dataset/generators/` e schemas em `repo/schemas/` prontos
 
 ---
 
@@ -155,7 +155,7 @@ confluent kafka topic consume dev.payments.flink.fraud.detected.v1 -b --cluster 
 
 ## Checklist final
 
-- [ ] Camada implementada compondo `repo/shared/` (zero duplicação dos labs)
+- [ ] Camada implementada compondo `repo/dataset/` + `repo/schemas/` (zero duplicação dos labs)
 - [ ] Contrato com a camada anterior validado (schema, chave, semântica changelog/append)
 - [ ] `setup.sh`/`teardown.sh` raiz atualizados e idempotentes
 - [ ] E2E completo passa com fraude plantada detectada

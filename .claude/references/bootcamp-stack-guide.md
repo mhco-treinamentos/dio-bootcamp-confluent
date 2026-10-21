@@ -39,7 +39,7 @@ Conceitos-âncora transversais (aparecem em todos os módulos): **RF=3, `min.ins
 
 ## Como as peças se conectam (pipeline payments/fraude)
 
-1. **Fonte** — Postgres 16 (`payments`) com `accounts`, `cards`, `transactions`; geradores Python (`repo/shared/generators/`) alimentam o banco e/ou produzem eventos sintéticos direto nos topics `dev.payments.gen.*`.
+1. **Fonte** — Postgres 16 (`payments`) com `accounts`, `cards`, `transactions`; geradores Python (`repo/dataset/generators/`) alimentam o banco e/ou produzem eventos sintéticos direto nos topics `dev.payments.gen.*`.
 2. **CDC** — conector Debezium gerenciado publica em `dev.payments.pg-payments.{entity}.cdc.v1` (RegexRouter aplica a convenção); registros ruins caem no Dead Letter Topic (Curso 3, Aula 4).
 3. **Schemas** — tudo Avro no Schema Registry, namespace `com.bootcamp.payments`, compatibilidade BACKWARD; Data Contracts com tags PII/PCI ([rules/schemas.md](../rules/schemas.md)).
 4. **Transformação** — Flink SQL lê os topics CDC + sintéticos, faz unwrap/enriquecimento/joins e publica `dev.payments.flink.transactions.enriched.v1` e `dev.payments.flink.fraud.detected.v1` (`MATCH_RECOGNIZE` para regras determinísticas).

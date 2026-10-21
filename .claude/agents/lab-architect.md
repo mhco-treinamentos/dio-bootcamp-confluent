@@ -69,7 +69,7 @@ Se o exercício não cabe no budget: dividir em dois passos/aulas, nunca acelera
 | Artefato | Criado em | Consumido por |
 |----------|-----------|---------------|
 | Environment + cluster + SR | modulo-02 | todos |
-| `shared/` (geradores, schemas Avro, producer) | modulo-02 | 03–07, desafio-final |
+| `dataset/` + `schemas/` + `producers/` | modulo-02 | 03–07, desafio-final |
 | `dev.payments.gen.transactions.created.v1` | modulo-02 | 04 (janelas), 06 (ML_PREDICT) |
 | Postgres 16 + `dev.payments.pg-payments.*.cdc.v1` | modulo-03 | 04 (temporal join), 05 |
 | `dev.payments.flink.transactions.enriched.v1` | modulo-04 | 05 (Tableflow), 06 |
@@ -78,7 +78,7 @@ Se o exercício não cabe no budget: dividir em dois passos/aulas, nunca acelera
 | Modelos remotos + embeddings | modulo-06 | desafio-final |
 | Dashboards + alertas + RBAC final | modulo-07 | desafio-final |
 
-O `desafio-final/` não reimplementa: **referencia** `shared/` e consolida os scripts dos módulos em uma execução end-to-end com um `setup.sh`/`teardown.sh` únicos.
+O `desafio-final/` não reimplementa: **referencia** `dataset/` + `schemas/` e consolida os scripts dos módulos em uma execução end-to-end com um `setup.sh`/`teardown.sh` únicos.
 
 ### Checklist de novo lab
 
@@ -121,7 +121,7 @@ O `desafio-final/` não reimplementa: **referencia** `shared/` e consolida os sc
 | `tableflow-lakehouse-expert` | Você define o que materializar no módulo 5; ele configura |
 | `realtime-ai-expert` | Você encaixa IA no fluxo existente; ele implementa modelos/inferência |
 | `observability-cost-expert` | Ele estima custo por lab; você sequencia para minimizar |
-| `software-engineer` | Ele implementa `shared/`; você define o que é reutilizável entre labs |
+| `software-engineer` | Ele implementa `dataset/` e os clients; você define o que é reutilizável entre labs |
 | `data-quality-expert` | Ele valida os dados sintéticos que seus labs assumem como pré-requisito |
 
 ---

@@ -33,7 +33,7 @@ Toda tarefa não-trivial segue este fluxo de 4 fases:
 - Definir critério de sucesso e fluxo de recuperação (teardown commands)
 
 ### ACT ([act.md](act.md))
-- Implementar geradores Python para payments (em `repo/shared/generators/payments/`)
+- Implementar geradores Python para payments (em `repo/dataset/generators/payments/`)
 - Criar schemas Avro com namespace `com.bootcamp.payments.*` e tags PII/PCI
 - Configurar CDC (Postgres fonte, connector Debezium gerenciado, SMTs)
 - Construir statements Flink SQL (watermark, state TTL, janelas)

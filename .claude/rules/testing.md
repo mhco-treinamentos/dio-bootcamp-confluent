@@ -5,7 +5,7 @@ globs: "**/tests/**/*.py,**/test_*.py,**/*_test.py"
 # Testing Rules
 
 ## Framework
-- pytest (mínimo 80% coverage em código de `shared/`)
+- pytest (mínimo 80% coverage em código de `dataset/`, `producers/` e `consumers/`)
 - Hypothesis para property-based em geradores
 - `conftest.py` para fixtures compartilhadas
 - testcontainers para integração com Kafka (KRaft) / Postgres / Schema Registry — sempre local, nunca Confluent Cloud

@@ -145,7 +145,7 @@ Carregadas automaticamente por glob:
 
 ## Quick start (para o autor do bootcamp)
 
-O código entregável vive em [`repo/`](../repo/): `shared/` (geradores, schemas), `labs/modulo-0X-*/` (um por curso) e `desafio-final/`.
+O código entregável vive em [`repo/`](../repo/): `dataset/` + `schemas/` (geradores e contratos), `docs/cursoN/` (guias por aula) e `desafio-final/`.
 
 ```
 "Usando confluent-cloud-expert, crie o script de setup da Aula 0: environment, cluster básico, API keys e teardown"

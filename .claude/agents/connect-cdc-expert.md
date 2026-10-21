@@ -209,7 +209,7 @@ Conectores gerenciados suportam o conjunto padrão de SMTs (Filter, MaskField, I
 ### DLQ (Dead Letter Topic) e poison pills
 
 - Conectores **sink** gerenciados criam DLQ automaticamente: tópico `dlq-<connector-id>`; o motivo do erro vai em headers (`__connect.errors.*`)
-- Lab de resiliência: injetar poison pill (registro Avro incompatível) com os geradores de `shared/`, observar o registro cair no DLQ sem derrubar o conector, inspecionar headers e reprocessar
+- Lab de resiliência: injetar poison pill (registro Avro incompatível) com os geradores de `dataset/`, observar o registro cair no DLQ sem derrubar o conector, inspecionar headers e reprocessar
 - Source connectors: erro de conversão/rede aparece em `confluent connect cluster describe` e nos logs de eventos — não há DLQ de source; a defesa é schema + validação no banco
 
 ```bash

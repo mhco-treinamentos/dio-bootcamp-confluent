@@ -60,7 +60,7 @@ repo/labs/modulo-0X-<slug>/
 ├── teardown.sh        # destrói TUDO que o setup.sh criou
 ├── sql/               # statements Flink (se aplicável)
 ├── configs/           # configs de conector (se aplicável)
-└── scripts/           # helpers Python (usam repo/shared/)
+└── scripts/           # helpers Python (usam repo/dataset/)
 ```
 
 ### 2.2 — Template de seção do README
@@ -98,7 +98,7 @@ repo/labs/modulo-0X-<slug>/
 - Encerrar com algo "visual" (consume no CLI mostrando fraude detectada, query Iceberg com resultado bonito) — aluno sai satisfeito
 
 ### 2.4 — Decidir o domínio dos dados
-Sempre payments/fraude. Usar geradores existentes (`repo/shared/generators/payments/`). Se o lab precisa de dados sem gerador, seguir antes [new-generator_v1.md](new-generator_v1.md).
+Sempre payments/fraude. Usar geradores existentes (`repo/dataset/generators/payments/`). Se o lab precisa de dados sem gerador, seguir antes [new-generator_v1.md](new-generator_v1.md).
 
 ### 2.5 — Mapa de recursos cloud (vira o teardown.sh)
 Listar TODO recurso que o `setup.sh` cria, com custo e ordem de destruição:

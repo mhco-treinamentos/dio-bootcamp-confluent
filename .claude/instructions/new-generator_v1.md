@@ -7,7 +7,7 @@
 - Python 3.11+
 - `faker`, `confluent-kafka`, `confluent-kafka[avro]` instalados
 - Entidade alvo identificada (`Account`, `Card`, `Transaction`, `FraudEvent`, etc.)
-- Geradores vivem em `repo/shared/generators/` (reuso entre labs e Desafio Final)
+- Geradores vivem em `repo/dataset/generators/` (reuso entre labs e Desafio Final)
 
 ---
 
@@ -22,7 +22,7 @@
 - Que campos são PII/PCI? (Ver [.claude/rules/schemas.md](../rules/schemas.md))
 
 ### 1.2 — Revisar geradores existentes
-- Inspecionar `repo/shared/generators/payments/`
+- Inspecionar `repo/dataset/generators/payments/`
 - Há `BaseGenerator` ABC para herdar?
 - Há `FakerPool` ou utilitários comuns que valem reuso? (`brazilian_formats.py`)
 
@@ -91,7 +91,7 @@ TransactionGenerator(BaseGenerator)
 
 ### 3.1 — Criar o arquivo do gerador
 
-**Local**: `repo/shared/generators/payments/transactions.py`
+**Local**: `repo/dataset/generators/payments/transactions.py`
 
 ```python
 """Gerador de Transaction sintética (payments)."""
@@ -104,7 +104,7 @@ from typing import Iterator
 
 from faker import Faker
 
-from shared.generators.base import BaseGenerator
+from dataset.generators.base import BaseGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ class TransactionGenerator(BaseGenerator):
 """Testes do TransactionGenerator."""
 from decimal import Decimal
 
-from shared.generators.payments.transactions import TransactionGenerator, TransactionGeneratorConfig
+from dataset.generators.payments.transactions import TransactionGenerator, TransactionGeneratorConfig
 
 
 class TestTransactionGenerator:
@@ -173,7 +173,7 @@ class TestTransactionGenerator:
 
 ### 3.3 — Exportar do módulo
 
-`repo/shared/generators/payments/__init__.py`:
+`repo/dataset/generators/payments/__init__.py`:
 ```python
 from .transactions import TransactionGenerator, TransactionGeneratorConfig
 
@@ -206,7 +206,7 @@ records = list(gen.generate(1000))
 - [ ] Edge cases tratados (status NEGADA, estorno, MCC raro)
 
 ### 4.4 — Validar Avro schema
-- Save do `.avsc` em `repo/shared/schemas/payments/transaction.avsc`
+- Save do `.avsc` em `repo/schemas/payments/transaction.avsc`
 - O hook [validate-avro-pii.sh](../hooks/validate-avro-pii.sh) bloqueia se houver campo sensível sem `confluent:tags`
 
 ---

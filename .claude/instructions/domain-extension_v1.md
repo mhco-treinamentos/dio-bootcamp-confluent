@@ -8,7 +8,7 @@
 - Ou um sub-domínio inteiro (ex.: `pix`, `boletos`)
 
 ## Pré-requisitos
-- Estrutura `repo/` existente (`shared/`, `labs/`, `desafio-final/`)
+- Estrutura `repo/` existente (`dataset/`, `schemas/`, `docs/`, `desafio-final/`)
 - Ambiente Confluent Cloud configurado (ver [cloud-setup_v1.md](cloud-setup_v1.md))
 - Para CDC: Postgres fonte rodando (`wal_level=logical`) e connector Debezium gerenciado ativo
 
@@ -25,9 +25,9 @@
 - Vai entrar no pipeline CDC (tabela Postgres) ou só no pipeline sintético direto-para-Kafka?
 
 ### 1.2 — Revisar o existente
-- Inspecionar `repo/shared/generators/payments/` para entender o pattern
-- Inspecionar `repo/shared/schemas/payments/*.avsc` para namespace/tags
-- Ver `BaseGenerator` em `repo/shared/generators/base.py`
+- Inspecionar `repo/dataset/generators/payments/` para entender o pattern
+- Inspecionar `repo/schemas/payments/*.avsc` para namespace/tags
+- Ver `BaseGenerator` em `repo/dataset/generators/base.py`
 
 ### 1.3 — Consultar references
 - [references/data-modeling.md](../references/data-modeling.md) — relacionamentos, evolução
@@ -103,7 +103,7 @@ dev.payments.pg-payments.refunds.cdc.v1
 
 ```
 repo/
-├── shared/
+├── dataset/
 │   ├── schemas/payments/refund.avsc           # novo
 │   └── generators/payments/
 │       ├── __init__.py                        # adicionar export
@@ -189,7 +189,7 @@ Consulta via engine conectada ao catálogo (Glue / Snowflake Open Catalog / Unit
 
 ### 4.1 — Schema (hook PII bloqueia se faltar tag)
 ```bash
-# Save em repo/shared/schemas/payments/refund.avsc dispara validate-avro-pii.sh
+# Save em repo/schemas/payments/refund.avsc dispara validate-avro-pii.sh
 # Esperado: sem violações (Refund não tem campos PII além do FK)
 ```
 
@@ -220,7 +220,7 @@ confluent tableflow topic describe dev.payments.flink.refunds.enriched.v1 --clus
 # Validar BACKWARD compat (deve passar — nova entidade não muda schemas existentes)
 confluent schema-registry schema create \
   --subject dev.payments.pg-payments.refunds.cdc.v1-value \
-  --schema repo/shared/schemas/payments/refund.avsc --type avro --dry-run
+  --schema repo/schemas/payments/refund.avsc --type avro --dry-run
 # Esperado: sem erro de compatibilidade
 ```
 

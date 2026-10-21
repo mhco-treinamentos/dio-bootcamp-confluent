@@ -48,7 +48,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
 python_version = "3.11"
-# strict em código de shared/ (ver .claude/rules/python.md); relaxado em scripts de lab
+# strict em código de dataset/, producers/ e consumers/ (ver .claude/rules/python.md); relaxado em scripts de lab
 strict = true
 ignore_missing_imports = true
 

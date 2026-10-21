@@ -204,7 +204,7 @@ bootcamp-confluent/
 ├── .claude/                            # Config Claude Code (rules, agents, skills, hooks)
 └── repo/                               # Código entregável
     ├── README.md
-    ├── shared/                         # Reuso entre labs
+    ├── dataset/ + schemas/             # Dados e contratos (reuso entre labs)
     │   ├── generators/
     │   │   ├── base.py                 # BaseGenerator ABC
     │   │   ├── payments/

@@ -21,3 +21,10 @@ Videos/
 *.mkv
 *.wav
 
+
+# Configs de conector gerados pelos próprios guias ao rodar (cat > x.json na raiz do repo/)
+repo/datagen.json
+repo/pg-cdc.json
+repo/sink.json
+repo/sink-cdc.json
+repo/flat-cdc.json

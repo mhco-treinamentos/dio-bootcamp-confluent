@@ -31,3 +31,8 @@ repo/flat-cdc.json
 
 # Configuração local do Claude Code — não versionada
 .claude/
+
+# Fontes editáveis e proposta do bootcamp — só local (PDFs das aulas ficam no repo)
+*.pptx
+docs/Bootcamp_Confluent_Cloud_2026_v3.docx
+docs/Bootcamp_Confluent_Cloud_2026_v3.pdf

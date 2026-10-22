@@ -8,7 +8,6 @@ pipeline fim a fim com CDC, contrato de dados, Flink SQL e operação profission
 
 | Você quer | Vá para |
 |---|---|
-| 📘 **Seguir as aulas** — guias passo a passo, aula por aula | [`repo/docs/`](repo/docs/README.md) |
 | 🏆 **Fazer o Desafio Final** — o pipeline fim a fim | [`repo/desafio-final/`](repo/desafio-final/README.md) |
 | 🧩 Código, datasets e schemas usados nas aulas | [`repo/`](repo/README.md) |
 
